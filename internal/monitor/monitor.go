@@ -8,29 +8,11 @@ import (
 	"os"
 	"sync"
 	"time"
-	"unsafe"
 )
 
 /*
 #cgo LDFLAGS: -L/usr/local/lib -Wl,-rpath=/usr/local/lib -lresource_manager  -lpqos
 #include <resource_manager.h>
-
-unsigned int cgo_rm_monitor_get_max_process(void* ctx) {
-	return rm_monitor_get_max_process(ctx);
-}
-
-int cgo_rm_monitor_add_process(void *ctx, pid_t pid) {
-	return rm_monitor_add_process(ctx, pid);
-}
-
-int cgo_rm_monitor_remove_process(void *ctx, pid_t pid) {
-	return rm_monitor_remove_process(ctx, pid);
-}
-
-int cgo_rm_monitor_destroy(void *ctx) {
-	return rm_monitor_destroy(ctx);
-}
-
 */
 import "C"
 
@@ -62,7 +44,7 @@ type monitorContext struct {
 type monitorImpl struct {
 	maxRmid    uint
 	requestCh  chan *Request
-	pMonitor   unsafe.Pointer
+	pMonitor   *C.struct_ProcessMonitor
 	logger     *log.Logger
 	wg         sync.WaitGroup
 	cancelFunc context.CancelFunc
@@ -86,8 +68,8 @@ func (m *monitorImpl) AddProcess(rq *Request) {
 }
 
 func (m *monitorImpl) Start(ctx context.Context) {
-	m.pMonitor = unsafe.Pointer(C.rm_monitor_create(1000))
-	m.maxRmid = uint(C.cgo_rm_monitor_get_max_process(m.pMonitor))
+	m.pMonitor = C.rm_monitor_create(1000)
+	m.maxRmid = uint(C.rm_monitor_get_max_process(m.pMonitor))
 	myCtx, cancel := context.WithCancel(ctx)
 	m.wg.Add(1)
 	m.cancelFunc = cancel
@@ -122,7 +104,7 @@ func (m *monitorImpl) routine(ctx context.Context) {
 
 	doAddMonitoringProcess := func(rq *Request) error {
 		m.logger.Printf("正在将进程%d加入监控队列\n", rq.pid)
-		res := int(C.cgo_rm_monitor_add_process(m.pMonitor, C.int(rq.pid)))
+		res := int(C.rm_monitor_add_process(m.pMonitor, C.int(rq.pid)))
 		if res != 0 {
 			m.logger.Printf("添加进程%d失败，返回码为%d\n", rq.pid, res)
 			return fmt.Errorf("添加进程%d失败，返回码为%d\n", rq.pid, res)
@@ -162,7 +144,7 @@ outerLoop:
 			}
 
 			updateWaitCh()
-			res := C.cgo_rm_monitor_remove_process(m.pMonitor, C.int(first.pid))
+			res := C.rm_monitor_remove_process(m.pMonitor, C.int(first.pid))
 			if res != 0 {
 				m.logger.Printf("系统监控移除进程%d失败，返回值为%d\n", first.pid, res)
 			}
@@ -188,9 +170,9 @@ outerLoop:
 			close(m.requestCh)
 			for mQueue.Len() > 0 {
 				ctx := heap.Pop(&mQueue).(*monitorContext)
-				C.cgo_rm_monitor_remove_process(m.pMonitor, C.int(ctx.pid))
+				C.rm_monitor_remove_process(m.pMonitor, C.int(ctx.pid))
 			}
-			C.cgo_rm_monitor_destroy(m.pMonitor)
+			C.rm_monitor_destroy(m.pMonitor)
 
 			break outerLoop
 		}

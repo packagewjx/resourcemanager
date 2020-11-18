@@ -3,6 +3,7 @@ package monitor
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/stretchr/testify/assert"
@@ -22,13 +23,13 @@ func (b *testBufWriter) Write(p []byte) (n int, err error) {
 }
 
 func TestMain(m *testing.M) {
-	if code := core.LibInit(); code != 0 {
-		fmt.Printf("启动失败，返回码为%d\n", code)
+	if err := core.LibInit(); err != nil {
+		fmt.Printf("%s\n", err.Error())
 		os.Exit(1)
 	}
 
 	retVal := m.Run()
-	core.LibFinalize()
+	_ = core.LibFinalize()
 	os.Exit(retVal)
 }
 
@@ -141,6 +142,11 @@ func TestAddProcessExceedRMID(t *testing.T) {
 
 	finished := 0
 	onFinish := func(pid uint, file string) {
+		f, err := os.Open(file)
+		assert.NoError(t, err)
+		records, err := csv.NewReader(f).ReadAll()
+		assert.NoError(t, err)
+		assert.NotEqual(t, 0, len(records))
 		_ = os.Remove(file)
 		finished++
 	}
