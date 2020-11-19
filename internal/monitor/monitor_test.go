@@ -22,6 +22,17 @@ func (b *testBufWriter) Write(p []byte) (n int, err error) {
 	return (*bytes.Buffer)(b).Write(p)
 }
 
+func mustCreateWithLog() (Monitor, *bytes.Buffer) {
+	monitor, err := NewMonitor(1000)
+	if err != nil {
+		panic(err)
+	}
+	// hack
+	buf := &bytes.Buffer{}
+	monitor.(*monitorImpl).logger = log.New((*testBufWriter)(buf), "", 0)
+	return monitor, buf
+}
+
 func TestMain(m *testing.M) {
 	if err := core.LibInit(); err != nil {
 		fmt.Printf("%s\n", err.Error())
@@ -34,13 +45,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestAddProcess(t *testing.T) {
-	monitor, err := NewMonitor(1000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// hack
-	buf := &bytes.Buffer{}
-	monitor.(*monitorImpl).logger = log.New((*testBufWriter)(buf), "", 0)
+	monitor, buf := mustCreateWithLog()
 
 	ctx, _ := context.WithTimeout(context.Background(), time.Second)
 	monitor.Start(ctx)
@@ -62,13 +67,7 @@ func TestAddProcess(t *testing.T) {
 }
 
 func TestStart(t *testing.T) {
-	monitor, err := NewMonitor(1000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// hack
-	buf := &bytes.Buffer{}
-	monitor.(*monitorImpl).logger = log.New((*testBufWriter)(buf), "", 0)
+	monitor, buf := mustCreateWithLog()
 
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	monitor.Start(ctx)
@@ -78,13 +77,7 @@ func TestStart(t *testing.T) {
 }
 
 func TestMonitorProcess(t *testing.T) {
-	monitor, err := NewMonitor(1000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// hack
-	buf := &bytes.Buffer{}
-	monitor.(*monitorImpl).logger = log.New((*testBufWriter)(buf), "", 0)
+	monitor, buf := mustCreateWithLog()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	monitor.Start(ctx)
@@ -182,4 +175,33 @@ func TestAddProcessExceedRMID(t *testing.T) {
 	monitor.ShutDownNow()
 
 	assert.Equal(t, numPid, finished)
+}
+
+func TestRemoveProcess(t *testing.T) {
+	monitor, err := NewMonitor(1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed := false
+	monitor.Start(context.Background())
+	monitor.AddProcess(&Request{
+		pid:      1,
+		duration: time.Hour,
+		onFinish: nil,
+		onError: func(pid uint, err error) {
+			removed = true
+		},
+	})
+	monitor.AddProcess(&Request{
+		pid:      uint(os.Getpid()),
+		duration: time.Hour,
+		onFinish: nil,
+		onError:  nil,
+	})
+
+	<-time.After(200 * time.Millisecond)
+	monitor.RemoveProcess(1)
+	<-time.After(200 * time.Millisecond)
+	monitor.ShutDownNow()
+	assert.True(t, removed)
 }

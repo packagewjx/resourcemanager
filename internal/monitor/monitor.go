@@ -16,8 +16,13 @@ import (
 */
 import "C"
 
+var (
+	ErrRemoved = fmt.Errorf("进程在监控完成之前被移出监控队列")
+)
+
 type Monitor interface {
-	AddProcess(rq *Request)
+	AddProcess(rq *Request)    // 添加进程到监控队列。若监控队列已满，将会把进程放入等待队列。完成监控时将会调用onFinish函数。出错则调用onError函数
+	RemoveProcess(pid uint)    // 移除当前在监控队列中的进程。若成功移除，将会调用添加时提供的onError函数，err为ErrRemoved
 	Start(ctx context.Context) // 启动Monitor
 	ShutDownNow()              // 立即结束，并等待资源回收。若ctx过期，也需要调用此函数进行资源回收
 }
@@ -42,13 +47,14 @@ type monitorContext struct {
 }
 
 type monitorImpl struct {
-	interval   int
-	maxRmid    uint
-	requestCh  chan *Request
-	pMonitor   *C.struct_ProcessMonitor
-	logger     *log.Logger
-	wg         sync.WaitGroup
-	cancelFunc context.CancelFunc
+	interval    int
+	maxRmid     uint
+	requestCh   chan *Request
+	removePidCh chan uint
+	pMonitor    *C.struct_ProcessMonitor
+	logger      *log.Logger
+	wg          sync.WaitGroup
+	cancelFunc  context.CancelFunc
 }
 
 func (m *monitorImpl) ShutDownNow() {
@@ -58,15 +64,20 @@ func (m *monitorImpl) ShutDownNow() {
 
 func NewMonitor(interval int) (Monitor, error) {
 	return &monitorImpl{
-		interval:  interval,
-		requestCh: make(chan *Request),
-		logger:    log.New(os.Stdout, "Monitor", log.LstdFlags|log.Lshortfile|log.Lmsgprefix),
-		wg:        sync.WaitGroup{},
+		interval:    interval,
+		requestCh:   make(chan *Request),
+		removePidCh: make(chan uint),
+		logger:      log.New(os.Stdout, "Monitor", log.LstdFlags|log.Lshortfile|log.Lmsgprefix),
+		wg:          sync.WaitGroup{},
 	}, nil
 }
 
 func (m *monitorImpl) AddProcess(rq *Request) {
 	m.requestCh <- rq
+}
+
+func (m *monitorImpl) RemoveProcess(pid uint) {
+	m.removePidCh <- pid
 }
 
 func (m *monitorImpl) Start(ctx context.Context) {
@@ -123,6 +134,22 @@ func (m *monitorImpl) routine(ctx context.Context) {
 		return nil
 	}
 
+	waitingLineToMonitoringLine := func() {
+		for len(requestQueue) > 0 {
+			waiting := requestQueue[0]
+			requestQueue = requestQueue[1:]
+			m.logger.Printf("将等待队列中的进程%d加入监控队列", waiting.pid)
+			err := doAddMonitoringProcess(waiting)
+			if err != nil {
+				if waiting.onError != nil {
+					go waiting.onError(waiting.pid, err)
+				}
+			} else {
+				break
+			}
+		}
+	}
+
 outerLoop:
 	for {
 		select {
@@ -131,19 +158,7 @@ outerLoop:
 			first := heap.Pop(&mQueue).(*monitorContext)
 			m.logger.Printf("进程%d监控时间结束，正在回收资源\n", first.pid)
 			// 队头弹出之后，从等待队列插入一个
-			for len(requestQueue) > 0 {
-				waiting := requestQueue[0]
-				requestQueue = requestQueue[1:]
-				m.logger.Printf("将等待队列中的进程%d加入监控队列", waiting.pid)
-				err := doAddMonitoringProcess(waiting)
-				if err != nil {
-					if waiting.onError != nil {
-						go waiting.onError(waiting.pid, err)
-					}
-				} else {
-					break
-				}
-			}
+			waitingLineToMonitoringLine()
 
 			updateWaitCh()
 			res := C.rm_monitor_remove_process(m.pMonitor, C.int(first.pid))
@@ -167,6 +182,31 @@ outerLoop:
 			if err != nil && rq.onError != nil {
 				go rq.onError(rq.pid, err)
 			}
+
+		case rpid := <-m.removePidCh:
+			m.logger.Printf("接收到移除监控进程%d的请求\n", rpid)
+			// 检查当前正在监控的队列
+			for i, ctx := range mQueue {
+				if ctx.pid == rpid {
+					m.logger.Printf("移除在监控队列中的进程%d\n", rpid)
+					removed := heap.Remove(&mQueue, i).(*monitorContext)
+					go removed.onError(removed.pid, ErrRemoved)
+					waitingLineToMonitoringLine()
+					continue outerLoop
+				}
+			}
+			// 检查等待中的队列
+			for i := 0; i < len(requestQueue); i++ {
+				if requestQueue[i].pid == rpid {
+					m.logger.Printf("移除在等待队列中的进程%d\n", rpid)
+					removed := requestQueue[i]
+					go removed.onError(removed.pid, ErrRemoved)
+					requestQueue = append(requestQueue[:i], requestQueue[i+1:]...)
+					continue outerLoop
+				}
+			}
+			m.logger.Printf("无法移除，目前没有监控进程%d\n", rpid)
+
 		case <-ctx.Done():
 			m.logger.Println("正在退出")
 			close(m.requestCh)

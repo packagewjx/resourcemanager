@@ -1,49 +1,19 @@
 package core
 
 import (
-	"flag"
 	"github.com/stretchr/testify/assert"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"log"
 	"os"
 	"testing"
 )
 
-var noInit bool
-var host string
-var tokenFile string
-
-func init() {
-	flag.BoolVar(&noInit, "no-init", true, "无需初始化")
-	flag.StringVar(&host, "host", "https://localhost:8443", "Kubernetes API Host")
-	flag.StringVar(&tokenFile, "tokenFile", "token", "Token file")
-}
-
 func TestMain(m *testing.M) {
-	flag.Parse()
-	if !noInit {
-		err := LibInit()
-		if err != nil {
-			os.Exit(1)
-		}
-		defer func() {
-			_ = LibFinalize()
-		}()
+	err := LibInit()
+	if err != nil {
+		panic(err)
 	}
-	rmImpl = &impl{
-		client: kubernetes.NewForConfigOrDie(&rest.Config{
-			Host:            host,
-			BearerTokenFile: tokenFile,
-			TLSClientConfig: rest.TLSClientConfig{
-				Insecure: true,
-			},
-		}),
-		monitor: &fakeMonitorImpl{},
-		logger:  log.New(os.Stdout, "tester", log.Lshortfile),
-	}
-
-	os.Exit(m.Run())
+	res := m.Run()
+	_ = LibFinalize()
+	os.Exit(res)
 }
 
 func TestGetInfo(t *testing.T) {

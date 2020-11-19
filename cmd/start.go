@@ -18,6 +18,7 @@ package cmd
 import (
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/core"
+	"github.com/packagewjx/resourcemanager/internal/resourcemanager"
 	"github.com/spf13/cobra"
 )
 
@@ -45,7 +46,7 @@ var startCmd = &cobra.Command{
 		return core.LibInit()
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := core.NewResourceManager(&core.Config{
+		manager, err := resourcemanager.NewResourceManager(&resourcemanager.Config{
 			CaFile:    caFile,
 			TokenFile: tokenFile,
 			Interval:  interval,
@@ -63,7 +64,7 @@ var startCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(startCmd)
 
-	startCmd.Flags().IntVarP(&interval, "interval", "i", core.DefaultInterval,
+	startCmd.Flags().IntVarP(&interval, "interval", "i", resourcemanager.DefaultInterval,
 		"默认取样周期")
 	startCmd.Flags().StringVarP(&tokenFile, "token-file", "t", "",
 		"用于访问集群的Service Account Token")
@@ -71,6 +72,6 @@ func init() {
 		"集群CA文件")
 	startCmd.Flags().BoolVarP(&insecure, "insecure", "n", false,
 		"支持TSL不安全连接")
-	startCmd.Flags().StringVarP(&host, "host", "h", core.DefaultHost,
+	startCmd.Flags().StringVarP(&host, "host", "h", resourcemanager.DefaultHost,
 		"Kubernetes API地址")
 }
