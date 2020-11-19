@@ -19,26 +19,20 @@ import (
 	"fmt"
 	"github.com/spf13/cobra"
 	"os"
-
-	homedir "github.com/mitchellh/go-homedir"
-	"github.com/spf13/viper"
 )
-
-var cfgFile string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "resourcemanager",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	//	Run: func(cmd *cobra.Command, args []string) { },
+	Short: "单机资源管控程序",
+	Long: `本资源管控程序将对本机上运行的所有容器进行内存带宽和缓存等资源的使用管控。
+管控过程完全自动化，通过学习各个应用程序的运行特征，合理分配各项资源，最大程度减少混合部署的容器之间的干扰。
+运行本程序有以下要求
+1. 需要运行在根名称空间，也就是不能运行在容器中。
+2. 需要使用root权限运行。
+3. 需要系统内核版本4.18及以上，linux启动参数加入'rdt=mba,cmt,l3cat,mbmlocal,mbmtotal'参数，启动后需挂载resctrl程序。
+4. 依赖librm ( https://github.com/packagewjx/librm )
+5. 需要有Kubernetes集群的pods, nodes, deployments, replicasets, statefulsets, daemonsets的list, get, watch权限`,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -47,45 +41,5 @@ func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
-	}
-}
-
-func init() {
-	cobra.OnInitialize(initConfig)
-
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.resourcemanager.yaml)")
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-}
-
-// initConfig reads in config file and ENV variables if set.
-func initConfig() {
-	if cfgFile != "" {
-		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
-	} else {
-		// Find home directory.
-		home, err := homedir.Dir()
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-		// Search config in home directory with name ".resourcemanager" (without extension).
-		viper.AddConfigPath(home)
-		viper.SetConfigName(".resourcemanager")
-	}
-
-	viper.AutomaticEnv() // read in environment variables that match
-
-	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
 	}
 }

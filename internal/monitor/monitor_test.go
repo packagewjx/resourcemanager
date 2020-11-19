@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestAddProcess(t *testing.T) {
-	monitor, err := NewMonitor()
+	monitor, err := NewMonitor(1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestAddProcess(t *testing.T) {
 }
 
 func TestStart(t *testing.T) {
-	monitor, err := NewMonitor()
+	monitor, err := NewMonitor(1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestStart(t *testing.T) {
 }
 
 func TestMonitorProcess(t *testing.T) {
-	monitor, err := NewMonitor()
+	monitor, err := NewMonitor(1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestMonitorProcess(t *testing.T) {
 }
 
 func TestNonExistProcess(t *testing.T) {
-	monitor, err := NewMonitor()
+	monitor, err := NewMonitor(1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestNonExistProcess(t *testing.T) {
 }
 
 func TestAddProcessExceedRMID(t *testing.T) {
-	monitor, err := NewMonitor()
+	monitor, err := NewMonitor(1000)
 	if err != nil {
 		t.Fatal(err)
 	}

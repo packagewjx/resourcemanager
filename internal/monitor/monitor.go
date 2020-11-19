@@ -42,6 +42,7 @@ type monitorContext struct {
 }
 
 type monitorImpl struct {
+	interval   int
 	maxRmid    uint
 	requestCh  chan *Request
 	pMonitor   *C.struct_ProcessMonitor
@@ -55,8 +56,9 @@ func (m *monitorImpl) ShutDownNow() {
 	m.wg.Wait()
 }
 
-func NewMonitor() (Monitor, error) {
+func NewMonitor(interval int) (Monitor, error) {
 	return &monitorImpl{
+		interval:  interval,
 		requestCh: make(chan *Request),
 		logger:    log.New(os.Stdout, "Monitor", log.LstdFlags|log.Lshortfile|log.Lmsgprefix),
 		wg:        sync.WaitGroup{},
@@ -68,7 +70,7 @@ func (m *monitorImpl) AddProcess(rq *Request) {
 }
 
 func (m *monitorImpl) Start(ctx context.Context) {
-	m.pMonitor = C.rm_monitor_create(1000)
+	m.pMonitor = C.rm_monitor_create(C.uint(m.interval))
 	m.maxRmid = uint(C.rm_monitor_get_max_process(m.pMonitor))
 	myCtx, cancel := context.WithCancel(ctx)
 	m.wg.Add(1)
