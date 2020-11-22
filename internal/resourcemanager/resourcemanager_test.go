@@ -3,7 +3,7 @@ package resourcemanager
 import (
 	"context"
 	"flag"
-	"github.com/packagewjx/resourcemanager/internal/monitor"
+	"github.com/packagewjx/resourcemanager/internal/resourcemonitor"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -53,12 +53,12 @@ func TestGetCurrentNodeAndPods(t *testing.T) {
 type fakeMonitorImpl struct {
 }
 
-var _ monitor.Monitor = &fakeMonitorImpl{}
+var _ resourcemonitor.Monitor = &fakeMonitorImpl{}
 
-func (f fakeMonitorImpl) AddProcess(_ *monitor.Request) {
+func (f fakeMonitorImpl) AddProcess(_ *resourcemonitor.Request) {
 }
 
-func (f fakeMonitorImpl) RemoveProcess(_ uint) {
+func (f fakeMonitorImpl) RemoveProcess(_ string) {
 }
 
 func (f fakeMonitorImpl) Start(_ context.Context) {

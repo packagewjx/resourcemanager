@@ -30,7 +30,7 @@ func TestSetControlScheme(t *testing.T) {
 	pid := os.Getpid()
 	schemes[0] = &ControlScheme{
 		clos:        1,
-		pidList:     []uint{uint(pid)},
+		pidList:     []int{pid},
 		llc:         0,
 		mbaThrottle: 0,
 	}

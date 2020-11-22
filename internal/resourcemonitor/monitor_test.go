@@ -1,4 +1,4 @@
-package monitor
+package resourcemonitor
 
 import (
 	"bytes"
@@ -23,7 +23,7 @@ func (b *testBufWriter) Write(p []byte) (n int, err error) {
 }
 
 func mustCreateWithLog() (Monitor, *bytes.Buffer) {
-	monitor, err := NewMonitor(1000)
+	monitor, err := New(1000)
 	if err != nil {
 		panic(err)
 	}
@@ -50,10 +50,11 @@ func TestAddProcess(t *testing.T) {
 	ctx, _ := context.WithTimeout(context.Background(), time.Second)
 	monitor.Start(ctx)
 	monitor.AddProcess(&Request{
-		pid:      1,
-		duration: time.Hour,
-		onFinish: nil,
-		onError: func(pid uint, err error) {
+		requestId: "test",
+		pidList:   []int{1},
+		duration:  time.Hour,
+		onFinish:  nil,
+		onError: func(requestId string, pid []int, err error) {
 			assert.FailNow(t, err.Error())
 		},
 	})
@@ -62,7 +63,7 @@ func TestAddProcess(t *testing.T) {
 
 	out := buf.String()
 	assert.NotEqual(t, -1, strings.Index(buf.String(), "正在启动"))
-	assert.NotEqual(t, -1, strings.Index(out, "接收到监控进程1的请求"))
+	assert.NotEqual(t, -1, strings.Index(out, "正在将进程组test加入监控队列"))
 	assert.NotEqual(t, -1, strings.Index(out, "正在退出"))
 }
 
@@ -83,12 +84,18 @@ func TestMonitorProcess(t *testing.T) {
 	monitor.Start(ctx)
 	onFinishCalled := false
 	monitor.AddProcess(&Request{
-		pid:      1,
-		duration: 5 * time.Second,
-		onFinish: func(pid uint, file string) {
+		requestId: "test",
+		pidList:   []int{1},
+		duration:  5 * time.Second,
+		onFinish: func(requestId string, pid []int, file string) {
+			f, err := os.Open(file)
+			assert.NoError(t, err)
+			records, err := csv.NewReader(f).ReadAll()
+			assert.NoError(t, err)
+			assert.NotEqual(t, 0, len(records))
 			onFinishCalled = true
 		},
-		onError: func(pid uint, err error) {
+		onError: func(requestId string, pid []int, err error) {
 			assert.FailNow(t, err.Error())
 		},
 	})
@@ -101,23 +108,23 @@ func TestMonitorProcess(t *testing.T) {
 	// 检查log是否正确
 	runLog := buf.String()
 	assert.NotEqual(t, -1, strings.Index(runLog, "正在退出"))
-	assert.NotEqual(t, -1, strings.Index(runLog, "进程1监控时间结束"))
-	assert.NotEqual(t, -1, strings.Index(runLog, "监控队列第一个更新为进程1"))
-	assert.NotEqual(t, -1, strings.Index(runLog, "接收到监控进程1的请求"))
+	assert.NotEqual(t, -1, strings.Index(runLog, "正在将进程组test加入监控队列"))
+	assert.NotEqual(t, -1, strings.Index(runLog, "监控队列第一个更新为进程组test"))
 }
 
 func TestNonExistProcess(t *testing.T) {
-	monitor, err := NewMonitor(1000)
+	monitor, err := New(1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	monitor.Start(context.Background())
 	errored := false
 	monitor.AddProcess(&Request{
-		pid:      10000000,
-		duration: time.Second,
-		onFinish: nil,
-		onError: func(pid uint, err error) {
+		requestId: "test",
+		pidList:   []int{10000000},
+		duration:  time.Second,
+		onFinish:  nil,
+		onError: func(requestId string, pid []int, err error) {
 			errored = true
 		},
 	})
@@ -128,13 +135,13 @@ func TestNonExistProcess(t *testing.T) {
 }
 
 func TestAddProcessExceedRMID(t *testing.T) {
-	monitor, err := NewMonitor(1000)
+	monitor, err := New(1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	finished := 0
-	onFinish := func(pid uint, file string) {
+	onFinish := func(requestId string, pid []int, file string) {
 		f, err := os.Open(file)
 		assert.NoError(t, err)
 		records, err := csv.NewReader(f).ReadAll()
@@ -144,7 +151,7 @@ func TestAddProcessExceedRMID(t *testing.T) {
 		finished++
 	}
 	errored := false
-	onError := func(pid uint, err error) {
+	onError := func(requestId string, pid []int, err error) {
 		fmt.Printf("%v\n", err)
 		errored = true
 	}
@@ -160,16 +167,15 @@ func TestAddProcessExceedRMID(t *testing.T) {
 			currPid++
 		}
 		monitor.AddProcess(&Request{
-			pid:      uint(currPid),
-			duration: time.Second * 3,
-			onFinish: onFinish,
-			onError:  onError,
+			requestId: fmt.Sprintf("%d", i),
+			pidList:   []int{currPid},
+			duration:  time.Second * 3,
+			onFinish:  onFinish,
+			onError:   onError,
 		})
 		currPid++
 	}
-	if errored {
-		assert.FailNow(t, "添加失败")
-	}
+	assert.False(t, errored)
 
 	<-time.After(10 * time.Second)
 	monitor.ShutDownNow()
@@ -178,29 +184,31 @@ func TestAddProcessExceedRMID(t *testing.T) {
 }
 
 func TestRemoveProcess(t *testing.T) {
-	monitor, err := NewMonitor(1000)
+	monitor, err := New(1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	removed := false
 	monitor.Start(context.Background())
 	monitor.AddProcess(&Request{
-		pid:      1,
-		duration: time.Hour,
-		onFinish: nil,
-		onError: func(pid uint, err error) {
+		requestId: "func",
+		pidList:   []int{1},
+		duration:  time.Hour,
+		onFinish:  nil,
+		onError:   nil,
+	})
+	monitor.AddProcess(&Request{
+		requestId: "test",
+		pidList:   []int{os.Getpid()},
+		duration:  time.Hour,
+		onFinish:  nil,
+		onError: func(requestId string, pid []int, err error) {
 			removed = true
 		},
 	})
-	monitor.AddProcess(&Request{
-		pid:      uint(os.Getpid()),
-		duration: time.Hour,
-		onFinish: nil,
-		onError:  nil,
-	})
 
 	<-time.After(200 * time.Millisecond)
-	monitor.RemoveProcess(1)
+	monitor.RemoveProcess("test")
 	<-time.After(200 * time.Millisecond)
 	monitor.ShutDownNow()
 	assert.True(t, removed)

@@ -3,7 +3,7 @@ package resourcemanager
 import (
 	"context"
 	"fmt"
-	"github.com/packagewjx/resourcemanager/internal/monitor"
+	"github.com/packagewjx/resourcemanager/internal/resourcemonitor"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,7 +32,7 @@ type Config struct {
 	Interval  int
 }
 
-func NewResourceManager(config *Config) (ResourceManager, error) {
+func New(config *Config) (ResourceManager, error) {
 	restConfig := &rest.Config{
 		Host:            config.Host,
 		BearerTokenFile: config.TokenFile,
@@ -46,7 +46,7 @@ func NewResourceManager(config *Config) (ResourceManager, error) {
 		return nil, errors.Wrap(err, "创建Kubernetes客户端发生错误")
 	}
 
-	m, err := monitor.NewMonitor(config.Interval)
+	m, err := resourcemonitor.New(config.Interval)
 	if err != nil {
 		return nil, errors.Wrap(err, "创建资源监控错误")
 	}
@@ -60,7 +60,7 @@ func NewResourceManager(config *Config) (ResourceManager, error) {
 
 type impl struct {
 	client  *kubernetes.Clientset
-	monitor monitor.Monitor
+	monitor resourcemonitor.Monitor
 	logger  *log.Logger
 }
 

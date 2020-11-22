@@ -46,7 +46,7 @@ var startCmd = &cobra.Command{
 		return core.LibInit()
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := resourcemanager.NewResourceManager(&resourcemanager.Config{
+		manager, err := resourcemanager.New(&resourcemanager.Config{
 			CaFile:    caFile,
 			TokenFile: tokenFile,
 			Interval:  interval,

@@ -38,7 +38,7 @@ type CLOSCapabilityInfo struct {
 
 type ControlScheme struct {
 	clos        uint
-	pidList     []uint
+	pidList     []int
 	llc         uint // 缓存路数
 	mbaThrottle uint // 内存控制阀门值
 }
