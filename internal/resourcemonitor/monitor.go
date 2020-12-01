@@ -29,7 +29,7 @@ type Monitor interface {
 	ShutDownNow()                   // 立即结束，并等待资源回收。若ctx过期，也需要调用此函数进行资源回收
 }
 
-type FinishFunc func(requestId string, pid []int, file string)
+type FinishFunc func(requestId string, pid []int, pqosFile, rthFile string)
 type ErrorFunc func(requestId string, pid []int, err error)
 
 var _ Monitor = &monitorImpl{}
@@ -45,7 +45,6 @@ type Request struct {
 type monitorContext struct {
 	requestId      string
 	pidList        []int
-	fileName       string
 	cContext       *C.struct_ProcessMonitorContext
 	monitorEndTime time.Time
 	onFinish       FinishFunc
@@ -124,11 +123,11 @@ func (m *monitorImpl) routine(ctx context.Context) {
 	doAddMonitoringProcess := func(rq *Request) error {
 		m.logger.Printf("正在将进程组%s加入监控队列\n", rq.requestId)
 		pidListPointer := utils.MallocCPidList(rq.pidList)
-		fileName := fmt.Sprintf("%s.csv", rq.requestId)
-		cName := C.CString(fileName)
+		requestId := fmt.Sprintf("%s", rq.requestId)
+		cRequestId := C.CString(requestId)
 		var cCtx *C.struct_ProcessMonitorContext
 		res := int(C.rm_monitor_add_process_group(m.pMonitor, (*C.pid_t)(pidListPointer), C.int(len(rq.pidList)),
-			cName, &cCtx))
+			cRequestId, &cCtx))
 		if res != 0 {
 			m.logger.Printf("添加进程组%s失败，返回码为%d\n", rq.requestId, res)
 			return fmt.Errorf("添加进程组%s失败，返回码为%d\n", rq.requestId, res)
@@ -141,7 +140,6 @@ func (m *monitorImpl) routine(ctx context.Context) {
 			onFinish:       rq.onFinish,
 			onError:        rq.onError,
 			cContext:       cCtx,
-			fileName:       fileName,
 		})
 
 		updateWaitCh()
@@ -180,7 +178,8 @@ outerLoop:
 				m.logger.Printf("系统监控移除进程组%s失败，返回值为%d\n", first.requestId, int(res))
 			}
 			if first.onFinish != nil {
-				go first.onFinish(first.requestId, first.pidList, first.fileName)
+				go first.onFinish(first.requestId, first.pidList, fmt.Sprintf("%s.pqos.csv", first.requestId),
+					fmt.Sprintf("%s.rth.csv", first.requestId))
 			}
 
 		case rq := <-m.requestCh:

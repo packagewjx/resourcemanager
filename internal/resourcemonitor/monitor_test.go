@@ -78,6 +78,7 @@ func TestStart(t *testing.T) {
 }
 
 func TestMonitorProcess(t *testing.T) {
+	println("这应该处于先的")
 	monitor, buf := mustCreateWithLog()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -85,15 +86,17 @@ func TestMonitorProcess(t *testing.T) {
 	onFinishCalled := false
 	monitor.AddProcess(&Request{
 		requestId: "test",
-		pidList:   []int{1},
+		pidList:   []int{os.Getpid()},
 		duration:  5 * time.Second,
-		onFinish: func(requestId string, pid []int, file string) {
-			f, err := os.Open(file)
+		onFinish: func(requestId string, pid []int, pqosFile, rthFile string) {
+			f, err := os.Open(pqosFile)
 			assert.NoError(t, err)
 			records, err := csv.NewReader(f).ReadAll()
 			assert.NoError(t, err)
 			assert.NotEqual(t, 0, len(records))
 			onFinishCalled = true
+			_ = os.Remove(pqosFile)
+			_ = os.Remove(rthFile)
 		},
 		onError: func(requestId string, pid []int, err error) {
 			assert.FailNow(t, err.Error())
@@ -141,13 +144,14 @@ func TestAddProcessExceedRMID(t *testing.T) {
 	}
 
 	finished := 0
-	onFinish := func(requestId string, pid []int, file string) {
-		f, err := os.Open(file)
+	onFinish := func(requestId string, pid []int, pqosFile, rthFile string) {
+		f, err := os.Open(pqosFile)
 		assert.NoError(t, err)
 		records, err := csv.NewReader(f).ReadAll()
 		assert.NoError(t, err)
 		assert.NotEqual(t, 0, len(records))
-		_ = os.Remove(file)
+		_ = os.Remove(pqosFile)
+		_ = os.Remove(rthFile)
 		finished++
 	}
 	errored := false
