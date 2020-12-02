@@ -19,14 +19,19 @@ import (
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/resourcemanager"
+	"github.com/packagewjx/resourcemanager/internal/resourcemonitor"
 	"github.com/spf13/cobra"
 )
 
-var interval int
-var tokenFile string
-var caFile string
-var insecure bool
-var host string
+var (
+	interval      int
+	tokenFile     string
+	caFile        string
+	insecure      bool
+	host          string
+	reservoirSize int
+	maxRthTime    int
+)
 
 // startCmd represents the start command
 var startCmd = &cobra.Command{
@@ -47,9 +52,13 @@ var startCmd = &cobra.Command{
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		manager, err := resourcemanager.New(&resourcemanager.Config{
-			CaFile:    caFile,
-			TokenFile: tokenFile,
-			Interval:  interval,
+			CaFile:        caFile,
+			TokenFile:     tokenFile,
+			Interval:      interval,
+			Insecure:      insecure,
+			Host:          host,
+			ReservoirSize: reservoirSize,
+			MaxRthTime:    maxRthTime,
 		})
 		if err != nil {
 			return err
@@ -74,4 +83,8 @@ func init() {
 		"支持TSL不安全连接")
 	startCmd.Flags().StringVarP(&host, "host", "h", resourcemanager.DefaultHost,
 		"Kubernetes API地址")
+	startCmd.Flags().IntVarP(&reservoirSize, "reservoir-size", "r", resourcemonitor.DefaultReservoirSize,
+		"内存使用追踪时Reservoir Sampling方法的Reservoir大小")
+	startCmd.Flags().IntVarP(&maxRthTime, "max-rth-time", "m", resourcemonitor.DefaultMaxRthTime,
+		"将内存使用记录转换为RTH时最大的Reuse Time大小")
 }

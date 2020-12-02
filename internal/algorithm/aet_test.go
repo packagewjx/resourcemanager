@@ -1,4 +1,4 @@
-package aet
+package algorithm
 
 import (
 	"github.com/stretchr/testify/assert"
@@ -106,5 +106,22 @@ func TestAetImpl_MR(t *testing.T) {
 	}
 	for i := 2; i <= 16; i++ {
 		assert.Equal(t, model.MR(i), model.ProbabilityReuseTimeGreaterThan(model.AET(i)))
+	}
+}
+
+func TestAetImpl_MRC(t *testing.T) {
+	reader := strings.NewReader(case1)
+	model, err := NewAETModel(reader)
+	assert.NoError(t, err)
+	mrc := model.MRC(20)
+	P := make([]float32, 41)
+	for i := 1; i <= 40; i++ {
+		P[i] = model.ProbabilityReuseTimeGreaterThan(i)
+	}
+	for i := 2; i <= 16; i++ {
+		assert.Equal(t, model.ProbabilityReuseTimeGreaterThan(model.AET(i)), mrc[i])
+	}
+	for i := 17; i <= 20; i++ {
+		assert.Equal(t, mrc[16], mrc[i])
 	}
 }

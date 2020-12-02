@@ -25,11 +25,26 @@ type ResourceManager interface {
 }
 
 type Config struct {
-	Host      string
-	CaFile    string
-	TokenFile string
-	Insecure  bool // 指定是否忽略TSL证书错误
-	Interval  int
+	Host          string
+	CaFile        string
+	TokenFile     string
+	Insecure      bool // 指定是否忽略TSL证书错误
+	Interval      int
+	ReservoirSize int // 内存使用追踪时，监控的集合大小
+	MaxRthTime    int // 将内存使用转换为RTH时，最大的Reuse Time
+}
+
+type monitorStatus string
+
+var (
+	statusMonitoring monitorStatus = "monitoring"
+	statusRunning    monitorStatus = "running"
+	statusNoControl  monitorStatus = "noControl"
+)
+
+type podManageContext struct {
+	monitorFile string
+	status      monitorStatus
 }
 
 func New(config *Config) (ResourceManager, error) {
@@ -46,7 +61,7 @@ func New(config *Config) (ResourceManager, error) {
 		return nil, errors.Wrap(err, "创建Kubernetes客户端发生错误")
 	}
 
-	m, err := resourcemonitor.New(config.Interval)
+	m, err := resourcemonitor.New(config.Interval, config.ReservoirSize, config.MaxRthTime)
 	if err != nil {
 		return nil, errors.Wrap(err, "创建资源监控错误")
 	}
@@ -61,6 +76,7 @@ func New(config *Config) (ResourceManager, error) {
 type impl struct {
 	client  *kubernetes.Clientset
 	monitor resourcemonitor.Monitor
+	watcher podPidWatcher
 	logger  *log.Logger
 }
 

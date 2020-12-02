@@ -22,6 +22,11 @@ var (
 	ErrDuplicate = fmt.Errorf("重复进程组")
 )
 
+var (
+	DefaultReservoirSize = 0x20000
+	DefaultMaxRthTime    = 100000
+)
+
 type Monitor interface {
 	AddProcess(rq *Request)         // 添加进程到监控队列。若监控队列已满，将会把进程放入等待队列。完成监控时将会调用onFinish函数。出错则调用onError函数
 	RemoveProcess(requestId string) // 移除当前在监控队列中的进程。若成功移除，将会调用添加时提供的onError函数，err为ErrRemoved
@@ -52,14 +57,16 @@ type monitorContext struct {
 }
 
 type monitorImpl struct {
-	interval    int
-	maxRmid     int
-	requestCh   chan *Request
-	removePidCh chan string
-	pMonitor    *C.struct_ProcessMonitor
-	logger      *log.Logger
-	wg          sync.WaitGroup
-	cancelFunc  context.CancelFunc
+	interval      int
+	maxRmid       int
+	reservoirSize int
+	maxRthTime    int
+	requestCh     chan *Request
+	removePidCh   chan string
+	pMonitor      *C.struct_ProcessMonitor
+	logger        *log.Logger
+	wg            sync.WaitGroup
+	cancelFunc    context.CancelFunc
 }
 
 func (m *monitorImpl) ShutDownNow() {
@@ -67,13 +74,15 @@ func (m *monitorImpl) ShutDownNow() {
 	m.wg.Wait()
 }
 
-func New(interval int) (Monitor, error) {
+func New(interval int, reservoirSize int, maxRthTime int) (Monitor, error) {
 	return &monitorImpl{
-		interval:    interval,
-		requestCh:   make(chan *Request),
-		removePidCh: make(chan string),
-		logger:      log.New(os.Stdout, "Monitor", log.LstdFlags|log.Lshortfile|log.Lmsgprefix),
-		wg:          sync.WaitGroup{},
+		interval:      interval,
+		requestCh:     make(chan *Request),
+		removePidCh:   make(chan string),
+		logger:        log.New(os.Stdout, "Monitor", log.LstdFlags|log.Lshortfile|log.Lmsgprefix),
+		wg:            sync.WaitGroup{},
+		reservoirSize: reservoirSize,
+		maxRthTime:    maxRthTime,
 	}, nil
 }
 
@@ -86,7 +95,7 @@ func (m *monitorImpl) RemoveProcess(requestId string) {
 }
 
 func (m *monitorImpl) Start(ctx context.Context) {
-	m.pMonitor = C.rm_monitor_create(C.uint(m.interval))
+	m.pMonitor = C.rm_monitor_create(C.uint(m.interval), C.int(m.reservoirSize), C.int(m.maxRthTime))
 	m.maxRmid = int(C.rm_monitor_get_max_process(m.pMonitor))
 	myCtx, cancel := context.WithCancel(ctx)
 	m.wg.Add(1)

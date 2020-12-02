@@ -23,7 +23,7 @@ func (b *testBufWriter) Write(p []byte) (n int, err error) {
 }
 
 func mustCreateWithLog() (Monitor, *bytes.Buffer) {
-	monitor, err := New(1000)
+	monitor, err := New(1000, 100000, 100000)
 	if err != nil {
 		panic(err)
 	}
@@ -31,6 +31,35 @@ func mustCreateWithLog() (Monitor, *bytes.Buffer) {
 	buf := &bytes.Buffer{}
 	monitor.(*monitorImpl).logger = log.New((*testBufWriter)(buf), "", 0)
 	return monitor, buf
+}
+
+func checkRthFile(t *testing.T, file string) {
+	t.Helper()
+	f, err := os.Open(file)
+	assert.NoError(t, err)
+	records, err := csv.NewReader(f).ReadAll()
+	assert.NoError(t, err)
+	assert.NotEqual(t, 0, len(records))
+	zeroCount := 0
+	for _, record := range records {
+		if record[1] == "0" {
+			zeroCount++
+		}
+	}
+	assert.NotEqual(t, 0, zeroCount)
+	_ = f.Close()
+	_ = os.Remove(file)
+}
+
+func checkPqosFile(t *testing.T, file string) {
+	t.Helper()
+	f, err := os.Open(file)
+	assert.NoError(t, err)
+	records, err := csv.NewReader(f).ReadAll()
+	assert.NoError(t, err)
+	assert.NotEqual(t, 0, len(records))
+	_ = f.Close()
+	_ = os.Remove(file)
 }
 
 func TestMain(m *testing.M) {
@@ -78,7 +107,6 @@ func TestStart(t *testing.T) {
 }
 
 func TestMonitorProcess(t *testing.T) {
-	println("这应该处于先的")
 	monitor, buf := mustCreateWithLog()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -89,14 +117,9 @@ func TestMonitorProcess(t *testing.T) {
 		pidList:   []int{os.Getpid()},
 		duration:  5 * time.Second,
 		onFinish: func(requestId string, pid []int, pqosFile, rthFile string) {
-			f, err := os.Open(pqosFile)
-			assert.NoError(t, err)
-			records, err := csv.NewReader(f).ReadAll()
-			assert.NoError(t, err)
-			assert.NotEqual(t, 0, len(records))
+			checkRthFile(t, rthFile)
+			checkPqosFile(t, pqosFile)
 			onFinishCalled = true
-			_ = os.Remove(pqosFile)
-			_ = os.Remove(rthFile)
 		},
 		onError: func(requestId string, pid []int, err error) {
 			assert.FailNow(t, err.Error())
@@ -116,7 +139,7 @@ func TestMonitorProcess(t *testing.T) {
 }
 
 func TestNonExistProcess(t *testing.T) {
-	monitor, err := New(1000)
+	monitor, err := New(1000, 100000, 100000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,20 +161,15 @@ func TestNonExistProcess(t *testing.T) {
 }
 
 func TestAddProcessExceedRMID(t *testing.T) {
-	monitor, err := New(1000)
+	monitor, err := New(1000, 100000, 100000)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	finished := 0
 	onFinish := func(requestId string, pid []int, pqosFile, rthFile string) {
-		f, err := os.Open(pqosFile)
-		assert.NoError(t, err)
-		records, err := csv.NewReader(f).ReadAll()
-		assert.NoError(t, err)
-		assert.NotEqual(t, 0, len(records))
-		_ = os.Remove(pqosFile)
-		_ = os.Remove(rthFile)
+		checkPqosFile(t, pqosFile)
+		checkRthFile(t, rthFile)
 		finished++
 	}
 	errored := false
@@ -188,7 +206,7 @@ func TestAddProcessExceedRMID(t *testing.T) {
 }
 
 func TestRemoveProcess(t *testing.T) {
-	monitor, err := New(1000)
+	monitor, err := New(1000, 100000, 100000)
 	if err != nil {
 		t.Fatal(err)
 	}

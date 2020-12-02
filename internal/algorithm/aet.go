@@ -1,4 +1,4 @@
-package aet
+package algorithm
 
 import (
 	"encoding/csv"
@@ -20,10 +20,13 @@ type AETModel interface {
 
 	// 计算出缓存行数量为cacheSize时候的Miss Rate
 	MR(cacheSize int) float32
+
+	// 计算Miss Rate Curve
+	MRC(cacheSize int) []float32
 }
 
 type aetImpl struct {
-	rthPrefixSum []int
+	rthPrefixSum []int // 使用前缀和优化区间和计算
 	numBeyondMax int
 	numColdMiss  int
 }
@@ -69,8 +72,8 @@ func readRTHCsv(file io.Reader) ([]int, error) {
 
 func (a *aetImpl) ProbabilityReuseTimeGreaterThan(t int) float32 {
 	if t >= len(a.rthPrefixSum) {
-		return (float32(a.numBeyondMax+a.numColdMiss) /
-			float32(a.numColdMiss+a.numBeyondMax+a.rthPrefixSum[len(a.rthPrefixSum)-1]))
+		return float32(a.numBeyondMax+a.numColdMiss) /
+			float32(a.numColdMiss+a.numBeyondMax+a.rthPrefixSum[len(a.rthPrefixSum)-1])
 	} else {
 		return (float32(a.numBeyondMax + a.numColdMiss + a.rthPrefixSum[len(a.rthPrefixSum)-1] - a.rthPrefixSum[t])) /
 			float32(a.numColdMiss+a.numBeyondMax+a.rthPrefixSum[len(a.rthPrefixSum)-1])
@@ -79,13 +82,33 @@ func (a *aetImpl) ProbabilityReuseTimeGreaterThan(t int) float32 {
 
 func (a *aetImpl) AET(cacheSize int) int {
 	curr := float32(0)
-	var res int
-	for res = 0; res < len(a.rthPrefixSum) && curr < float32(cacheSize); res++ {
-		curr += a.ProbabilityReuseTimeGreaterThan(res)
+	var t int
+	for t = 0; t < len(a.rthPrefixSum) && curr < float32(cacheSize); t++ {
+		curr += a.ProbabilityReuseTimeGreaterThan(t)
 	}
-	return res - 1
+	return t - 1
 }
 
 func (a *aetImpl) MR(cacheSize int) float32 {
 	return a.ProbabilityReuseTimeGreaterThan(a.AET(cacheSize))
+}
+
+func (a *aetImpl) MRC(cacheSize int) []float32 {
+	result := make([]float32, cacheSize+1)
+	curr := float32(0) // 当前缓存大小
+	max := 0
+	for t := 0; t < len(a.rthPrefixSum); t++ {
+		next := curr + a.ProbabilityReuseTimeGreaterThan(t)
+		if int(next) > int(curr) {
+			result[int(next)] = a.ProbabilityReuseTimeGreaterThan(t)
+			max = int(next)
+		}
+		curr = next
+	}
+
+	// 将后面为0的部分设置为最后一位的值
+	for i := max + 1; i < len(result); i++ {
+		result[i] = result[max]
+	}
+	return result
 }
