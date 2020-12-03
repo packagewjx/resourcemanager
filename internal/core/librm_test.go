@@ -19,10 +19,10 @@ func TestMain(m *testing.M) {
 func TestGetInfo(t *testing.T) {
 	info, err := GetCapabilityInfo()
 	assert.NoError(t, err)
-	assert.NotEqual(t, 0, info.maxLLCWays)
-	assert.NotEqual(t, 0, info.minLLCWays)
-	assert.NotEqual(t, 0, info.numCatClos)
-	assert.NotEqual(t, 0, info.numMbaClos)
+	assert.NotEqual(t, 0, info.MaxLLCWays)
+	assert.NotEqual(t, 0, info.MinLLCWays)
+	assert.NotEqual(t, 0, info.NumCatClos)
+	assert.NotEqual(t, 0, info.NumMbaClos)
 }
 
 func TestSetControlScheme(t *testing.T) {

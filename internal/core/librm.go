@@ -9,7 +9,7 @@ package core
 import "C"
 import (
 	"fmt"
-	"reflect"
+	"github.com/packagewjx/resourcemanager/internal/utils"
 	"unsafe"
 )
 
@@ -29,20 +29,6 @@ func LibFinalize() error {
 	return nil
 }
 
-type CLOSCapabilityInfo struct {
-	numCatClos uint
-	maxLLCWays uint
-	minLLCWays uint
-	numMbaClos uint
-}
-
-type ControlScheme struct {
-	clos        uint
-	pidList     []int
-	llc         uint // 缓存路数
-	mbaThrottle uint // 内存控制阀门值
-}
-
 var capInfo *CLOSCapabilityInfo = nil
 
 func GetCapabilityInfo() (*CLOSCapabilityInfo, error) {
@@ -53,39 +39,33 @@ func GetCapabilityInfo() (*CLOSCapabilityInfo, error) {
 			return nil, fmt.Errorf("获取Capability错误，返回码为%d", res)
 		}
 		capInfo = &CLOSCapabilityInfo{
-			numCatClos: uint(buf.numCatClos),
-			maxLLCWays: uint(buf.maxLLCWays),
-			minLLCWays: uint(buf.minLLCWays),
-			numMbaClos: uint(buf.numMbaClos),
+			NumCatClos: uint(buf.numCatClos),
+			MaxLLCWays: uint(buf.maxLLCWays),
+			MinLLCWays: uint(buf.minLLCWays),
+			NumMbaClos: uint(buf.numMbaClos),
 		}
 	}
 
 	return capInfo, nil
 }
 
-func SetControlScheme(schemes []*ControlScheme) error {
-	sizeofPid := unsafe.Sizeof([1]C.pid_t{})
+func SetControlScheme(schemes []*CLOSScheme) error {
 	cSchemes := make([]C.struct_rm_clos_scheme, len(schemes))
 	pointersToFree := make([]unsafe.Pointer, len(schemes))
 	for i, scheme := range schemes {
-		buffer := C.malloc(C.ulong(uint64(sizeofPid) * uint64(len(scheme.pidList))))
-		pointersToFree[i] = unsafe.Pointer(buffer)
-		// 将malloc分配的pid_t数组转换为Go可用的Slice
-		var pidList []C.pid_t
-		sliceHeader := (*reflect.SliceHeader)(unsafe.Pointer(&pidList))
-		sliceHeader.Len = len(scheme.pidList)
-		sliceHeader.Cap = len(scheme.pidList)
-		sliceHeader.Data = uintptr(unsafe.Pointer(buffer))
-		for idx, pid := range scheme.pidList {
-			pidList[idx] = C.pid_t(pid)
+		var pidList []int
+		for _, group := range scheme.ProcessGroups {
+			pidList = append(pidList, group.Pid...)
 		}
+		list := utils.MallocCPidList(pidList)
 		cSchemes[i] = C.struct_rm_clos_scheme{
-			closNum:        C.int(scheme.clos),
-			processList:    &pidList[0],
-			lenProcessList: C.uint(len(scheme.pidList)),
-			llc:            C.uint(scheme.llc),
-			mbaThrottle:    C.uint(scheme.mbaThrottle),
+			closNum:        C.int(scheme.CLOSNum),
+			processList:    list,
+			lenProcessList: C.uint(len(pidList)),
+			llc:            C.uint(scheme.WayBit),
+			mbaThrottle:    C.uint(scheme.MemThrottle),
 		}
+		C.free(list)
 	}
 
 	res := int(C.rm_control_scheme_set(&cSchemes[0], C.int(len(cSchemes))))

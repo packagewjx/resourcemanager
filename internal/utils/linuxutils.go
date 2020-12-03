@@ -30,3 +30,18 @@ func MallocCPidList(pidList []int) unsafe.Pointer {
 func FreeCPointer(p unsafe.Pointer) {
 	C.free(p)
 }
+
+// 获取本机CPU的访存延迟。单位为周期
+func GetMemAccessLatency() (l1lat, l2lat, l3lat, memLat int) {
+	// 数据来源：https://www.7-cpu.com/cpu/Skylake.html与Intel Memory Latency Checker
+	return 4, 12, 40, 200
+}
+
+// 获取本机的只有L1 Hit的访问以及其他不访问内存的指令的Cycles Per Instruction
+func GetCPIBase() float32 {
+	return 0.54
+}
+
+func GetL3Cap() (numWays, numSets, lineBytes int) {
+	return 11, 20480, 64
+}
