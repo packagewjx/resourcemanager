@@ -95,7 +95,7 @@ func (m *monitorImpl) RemoveProcess(requestId string) {
 }
 
 func (m *monitorImpl) Start(ctx context.Context) {
-	m.pMonitor = C.rm_monitor_create(C.uint(m.interval), C.int(m.reservoirSize), C.int(m.maxRthTime))
+	m.pMonitor = C.rm_monitor_create(C.uint(m.interval), C.uint(m.reservoirSize), C.uint(m.maxRthTime))
 	m.maxRmid = int(C.rm_monitor_get_max_process(m.pMonitor))
 	myCtx, cancel := context.WithCancel(ctx)
 	m.wg.Add(1)

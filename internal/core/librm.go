@@ -60,7 +60,7 @@ func SetControlScheme(schemes []*CLOSScheme) error {
 		list := utils.MallocCPidList(pidList)
 		cSchemes[i] = C.struct_rm_clos_scheme{
 			closNum:        C.int(scheme.CLOSNum),
-			processList:    list,
+			processList:    (*C.pid_t)(list),
 			lenProcessList: C.uint(len(pidList)),
 			llc:            C.uint(scheme.WayBit),
 			mbaThrottle:    C.uint(scheme.MemThrottle),

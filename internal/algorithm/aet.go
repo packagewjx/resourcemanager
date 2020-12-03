@@ -97,7 +97,7 @@ func (a *aetImpl) MRC(cacheSize int) []float32 {
 	result := make([]float32, cacheSize+1)
 	curr := float32(0) // 当前缓存大小
 	max := 0
-	for t := 0; t < len(a.rthPrefixSum); t++ {
+	for t := 0; t < len(a.rthPrefixSum) && int(curr) < cacheSize; t++ {
 		next := curr + a.ProbabilityReuseTimeGreaterThan(t)
 		if int(next) > int(curr) {
 			result[int(next)] = a.ProbabilityReuseTimeGreaterThan(t)
