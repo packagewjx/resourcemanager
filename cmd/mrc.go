@@ -47,7 +47,7 @@ var mrcCmd = &cobra.Command{
 		defer func() {
 			_ = f.Close()
 		}()
-		model, err := algorithm.NewAETModel(f)
+		model, err := algorithm.NewAETModelFromFile(f)
 		if err != nil {
 			return errors.Wrap(err, "解析RTH文件出错")
 		}

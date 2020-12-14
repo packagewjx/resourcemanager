@@ -33,12 +33,16 @@ type aetImpl struct {
 
 var _ AETModel = &aetImpl{}
 
-func NewAETModel(file io.Reader) (AETModel, error) {
+func NewAETModelFromFile(file io.Reader) (AETModel, error) {
 	rth, err := readRTHCsv(file)
 	if err != nil {
 		return nil, errors.Wrap(err, "读取RTH数据出错")
 	}
 
+	return NewAETModel(rth), nil
+}
+
+func NewAETModel(rth []int) AETModel {
 	numColdMiss := rth[0]
 	numBeyondMax := rth[len(rth)-1]
 	rth[0] = 0
@@ -51,7 +55,7 @@ func NewAETModel(file io.Reader) (AETModel, error) {
 		rthPrefixSum: rth,
 		numColdMiss:  numColdMiss,
 		numBeyondMax: numBeyondMax,
-	}, nil
+	}
 }
 
 func readRTHCsv(file io.Reader) ([]int, error) {

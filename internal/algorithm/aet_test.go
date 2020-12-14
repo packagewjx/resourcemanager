@@ -58,7 +58,7 @@ func TestAetImpl_ProbabilityReuseTimeGreaterThan(t *testing.T) {
 	}
 
 	read := strings.NewReader(case1)
-	model, err := NewAETModel(read)
+	model, err := NewAETModelFromFile(read)
 	impl := model.(*aetImpl)
 	assert.NoError(t, err)
 	assert.Equal(t, 5, impl.numColdMiss)
@@ -73,7 +73,7 @@ func TestAetImpl_ProbabilityReuseTimeGreaterThan(t *testing.T) {
 
 func TestAetImpl_AET(t *testing.T) {
 	reader := strings.NewReader(case1)
-	model, err := NewAETModel(reader)
+	model, err := NewAETModelFromFile(reader)
 	assert.NoError(t, err)
 
 	P := make([]float32, 41)
@@ -98,7 +98,7 @@ func TestAetImpl_AET(t *testing.T) {
 
 func TestAetImpl_MR(t *testing.T) {
 	reader := strings.NewReader(case1)
-	model, err := NewAETModel(reader)
+	model, err := NewAETModelFromFile(reader)
 	assert.NoError(t, err)
 	P := make([]float32, 41)
 	for i := 1; i <= 40; i++ {
@@ -111,7 +111,7 @@ func TestAetImpl_MR(t *testing.T) {
 
 func TestAetImpl_MRC(t *testing.T) {
 	reader := strings.NewReader(case1)
-	model, err := NewAETModel(reader)
+	model, err := NewAETModelFromFile(reader)
 	assert.NoError(t, err)
 	mrc := model.MRC(20)
 	P := make([]float32, 41)
