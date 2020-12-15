@@ -18,7 +18,7 @@ import (
 func TestReadPerf(t *testing.T) {
 	go utils.SequenceMemoryReader()
 	cmd := exec.Command("perf", "record", "-e", "cpu/mem-loads/P,cpu/mem-stores/P", "-d", "-c", "10",
-		"-p", strconv.FormatInt(int64(os.Getpid()), 10), "-o", "perf.data", "sleep", "2")
+		"-ip", strconv.FormatInt(int64(os.Getpid()), 10), "-o", "perf.data", "sleep", "2")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()

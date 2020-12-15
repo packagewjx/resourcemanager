@@ -101,8 +101,8 @@ func (p *perfMemRecorder) Start(ctx context.Context) {
 	pidListString := strings.Join(pidString, ",")
 	recordCmd := exec.Command("perf", "record", "-e", "cpu/mem-loads,ldlat=30/P,cpu/mem-stores/P", "-d", "-c", "1", "-o",
 		outFile,
-		"--switch-output=1s", "-p", pidListString)
-	statCmd := exec.Command("perf", "stat", "-e", perfStatEvents, "-p", pidListString, "-x", ",")
+		"--switch-output=1s", "-ip", pidListString)
+	statCmd := exec.Command("perf", "stat", "-e", perfStatEvents, "-ip", pidListString, "-x", ",")
 	statStderr, err := statCmd.StderrPipe()
 	if err != nil {
 		p.logger.Printf("打开stat命令的stdout出错：%s", err.Error())
