@@ -82,7 +82,7 @@ func processData(builder perf.InstructionProcessorBuilder) func(cmd *cobra.Comma
 				break outerLoop
 			case <-tick:
 				currCnt := processor.GetInstructionProcessCount()
-				fmt.Printf("\r编译速度：%8d/s  已编译行数：%d", currCnt-lastCnt, currCnt)
+				fmt.Printf("\r处理速度：%8d/s  已处理行数：%d", currCnt-lastCnt, currCnt)
 				lastCnt = currCnt
 			}
 		}

@@ -158,17 +158,12 @@ type InstructionPreprocessor struct {
 var operandStartPattern = regexp.MustCompile(" +[$%(\\-0-9]")
 
 func (i InstructionPreprocessor) Process(ins string) string {
-	stringIndex := operandStartPattern.FindStringIndex(ins)
-	if len(stringIndex) == 0 {
-		stringIndex = []int{len(ins)}
-	}
-	operation := ins[:stringIndex[0]]
+	operation := extractOperationFromInstruction(ins)
 	switch operation {
 
 	case "nop", "nopl", "nopw", // Nop指令
 		"jmp", "jz", "jne", "jmpq", "jbe", "bnd jmp", "jnbe", "jnz", "jnb", "jb", "jle", "jnle",
-		"js", "jns", "jl", "jnl", "jo", "call", "callq", // 跳转指令
-		"cmp", "test", "cmpl", "cmpb", "cmpq": // 比较指令
+		"js", "jns", "jl", "jnl", "jo", "call", "callq": // 跳转指令
 		ins = ""
 	case "movqq", "movlpdq", "movhpdq", "movhpsq", "movdqax", "movdqux", "movupsx", "movapsx", "vmovdqay", "vmovdquy",
 		"pcmpeqbx", "stosqq", "rep stosqq", "paddqx", "pcmpistrix", "palignrx", "vpcmpeqby", "vmovdqux":
@@ -177,6 +172,14 @@ func (i InstructionPreprocessor) Process(ins string) string {
 	}
 	ins = strings.ReplaceAll(ins, ":,", ":0,")
 	return ins
+}
+
+func extractOperationFromInstruction(ins string) string {
+	stringIndex := operandStartPattern.FindStringIndex(ins)
+	if len(stringIndex) == 0 {
+		stringIndex = []int{len(ins)}
+	}
+	return ins[:stringIndex[0]]
 }
 
 func (i InstructionPreprocessor) Finish() {}
@@ -242,4 +245,18 @@ func (i *InstructionWriter) Process(ins string) string {
 func (i *InstructionWriter) Finish() {
 	_ = i.bufWriter.Flush()
 	_ = i.closer.Close()
+}
+
+type InstructionFinder struct {
+	Map map[string]struct{}
+}
+
+func (i *InstructionFinder) Process(ins string) string {
+	operation := extractOperationFromInstruction(ins)
+	i.Map[operation] = struct{}{}
+	return ins
+}
+
+func (i *InstructionFinder) Finish() {
+
 }

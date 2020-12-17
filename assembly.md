@@ -80,6 +80,18 @@
 - [ ] 不允许修改系统保护区块，比如虚拟地址空间中映射为操作系统内存区域的部分
 - [ ] 减少一切不会影响寄存器内容的指令，如`cmp`、`test`等，这些指令大多用来控制跳转
 
+### 指令转换
+
+[指令快查](https://www.felixcloutier.com/x86/)
+
+#### 跳过的指令
+
+这些指令对通用寄存器以及RIP无影响，通常用于控制跳转
+
+- NOP指令：nop nopl nopw
+- 跳转指令：jb jbe jl jle jmp jmpq jnb jnbe jnl jnle jno jnp jns jnz jo js jz `bnd jmp`
+- 调用过程相关指令：callq syscall int
+
 ### 无法编译指令
 
 #### 错误后缀指令
@@ -113,20 +125,6 @@
 - invalid instruction suffix for `movlpd`： 出错命令为`movlpdq`，去掉`q`后缀
 - invalid instruction suffix for `movhpd`： 出错命令为`movhpdq`，去掉`q`后缀
 - invalid instruction suffix for `movhps`： 出错命令为`movhpsq`，去掉`q`后缀
-
-7096.run.s:1096132: Error: no such instruction:
-
-7096.run.s:1314244: Error: invalid instruction suffix for `vmovq'
-
-7096.run.s:1048385: Error: no such instruction:
-
-7096.run.s:1053090: Error: invalid instruction suffix for `movsd'
-
-7096.run.s:1053091: Error: invalid instruction suffix for `addsd'
-
-7096.run.s:1057912: Error: no such instruction:
-
-7096.run.s:1093321: Error: no such instruction: `movsqq (%rsi),(%rdi)'
 
 ## 需要对perf进行的修改
 
