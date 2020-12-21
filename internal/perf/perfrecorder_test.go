@@ -3,6 +3,7 @@ package perf
 import (
 	"context"
 	"encoding/csv"
+	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/utils"
@@ -26,9 +27,21 @@ func TestReadPerf(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := readPerfMemFile("perf.data")
+	res, err := ReadPerfMemTrace("perf.data")
 	assert.NoError(t, err)
 	assert.NotEqual(t, 0, len(res))
+}
+
+func TestH(t *testing.T) {
+	trace, _ := ReadPerfMemTrace("../../perf.data")
+	calculator := algorithm.FullTraceCalculator()
+	calculator.Update(trace)
+	rth := calculator.GetRTH(100000)
+	f, _ := os.Create("rth.perf.csv")
+	for i, r := range rth {
+		_, _ = f.WriteString(fmt.Sprintf("%d,%d\n", i, r))
+	}
+	_ = f.Close()
 }
 
 func TestPerfMemRecorder(t *testing.T) {

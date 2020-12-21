@@ -74,6 +74,7 @@ var mrcCmd = &cobra.Command{
 				return errors.Wrap(err, "打印输出内容出错")
 			}
 		}
+		writer.Flush()
 
 		return nil
 	},

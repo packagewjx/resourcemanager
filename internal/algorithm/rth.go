@@ -1,10 +1,16 @@
 package algorithm
 
-import "math/rand"
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"math/rand"
+)
 
 type RTHCalculator interface {
 	Update(traces []uint64)
 	GetRTH(maxTime int) []int
+	WriteAsCsv(maxTime int, writer io.Writer)
 }
 
 func ReservoirCalculator(reservoirSize int) RTHCalculator {
@@ -82,6 +88,10 @@ func (r *reservoirCalculator) GetRTH(maxTime int) []int {
 	return res
 }
 
+func (r *reservoirCalculator) WriteAsCsv(maxTime int, writer io.Writer) {
+	doWriteAsCsv(r.GetRTH(maxTime), writer)
+}
+
 func FullTraceCalculator() RTHCalculator {
 	return &fullTraceCalculator{
 		sample: map[uint64][]uint64{},
@@ -118,4 +128,16 @@ func (f *fullTraceCalculator) GetRTH(maxTime int) []int {
 		}
 	}
 	return res
+}
+
+func (f *fullTraceCalculator) WriteAsCsv(maxTime int, writer io.Writer) {
+	doWriteAsCsv(f.GetRTH(maxTime), writer)
+}
+
+func doWriteAsCsv(rth []int, writer io.Writer) {
+	bufWriter := bufio.NewWriter(writer)
+	for t, c := range rth {
+		_, _ = bufWriter.WriteString(fmt.Sprintf("%d,%d\n", t, c))
+	}
+	_ = bufWriter.Flush()
 }

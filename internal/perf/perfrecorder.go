@@ -158,7 +158,7 @@ func (p *perfMemRecorder) Start(ctx context.Context) {
 					}
 
 					p.logger.Printf("正在读取文件%s", path)
-					res, err := readPerfMemFile(path)
+					res, err := ReadPerfMemTrace(path)
 					if err != nil {
 						return errors.Wrap(err, fmt.Sprintf("读取文件%s出错", path))
 					}
@@ -235,7 +235,7 @@ func (p *perfMemRecorder) FinishSampling(maxTime int) (*PerfRecord, error) {
 	return res, nil
 }
 
-func readPerfMemFile(path string) ([]uint64, error) {
+func ReadPerfMemTrace(path string) ([]uint64, error) {
 	reportCmd := exec.Command("perf", "mem", "report", "-D", "-x", ",", "-i", path)
 	stdout, err := reportCmd.StdoutPipe()
 	if err != nil {
@@ -263,6 +263,7 @@ func readPerfMemFile(path string) ([]uint64, error) {
 			fmt.Printf("从perf report读取数据%s出错\n", addrString)
 			continue
 		}
+		addr &= 0xFFFFFFFFFFFFFFC0
 		res = append(res, addr)
 	}
 	if err != nil && err != io.EOF {
