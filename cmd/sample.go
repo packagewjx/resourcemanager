@@ -37,7 +37,7 @@ var sampleCmd = &cobra.Command{
 		}
 
 		recorder := pin.NewMemRunRecorder(func(tid int) algorithm.RTHCalculator {
-			return algorithm.FullTraceCalculator()
+			return algorithm.ReservoirCalculator(100000)
 		}, "/home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so", args[0], args[1:]...)
 		fmt.Println("开始采样")
 		ch, err := recorder.Start()

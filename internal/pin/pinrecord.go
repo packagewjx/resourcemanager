@@ -11,7 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -37,7 +39,7 @@ func NewMemAttachRecorder(factory RTHCalculatorFactory, pinToolPath string, pid 
 func NewMemRunRecorder(factory RTHCalculatorFactory, pinToolPath string, cmd string, args ...string) MemRecorder {
 	fifoPath := strings.Join(append(append([]string{strings.ReplaceAll(cmd, "/", "_")}, args...)), "_") + ".fifo"
 	pinToolPath, _ = filepath.Abs(pinToolPath)
-	pinArgs := []string{"-t", pinToolPath, "-binary", "-fifo", fifoPath, "--", cmd}
+	pinArgs := []string{"-t", pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize", "10000", "--", cmd}
 	pinArgs = append(pinArgs, args...)
 	pinCmd := exec.Command("pin", pinArgs...)
 
@@ -52,15 +54,10 @@ type pinRecorder struct {
 	pinCmd   *exec.Cmd
 	factory  RTHCalculatorFactory
 	fifoPath string
+	readCnt  uint // 性能优化使用，监测读取速度
 }
 
 func (m *pinRecorder) pinTraceReader(resChan chan map[int]algorithm.RTHCalculator) {
-	defer func() {
-		_ = m.pinCmd.Wait()
-		_ = os.Remove(m.fifoPath)
-		close(resChan)
-	}()
-
 	fin, err := os.OpenFile(m.fifoPath, os.O_RDONLY, os.ModeNamedPipe)
 	if err != nil {
 		_ = os.Remove(m.fifoPath)
@@ -74,9 +71,14 @@ func (m *pinRecorder) pinTraceReader(resChan chan map[int]algorithm.RTHCalculato
 	buf := make([]byte, unsafe.Sizeof(uint64(1)))
 	var cnt int
 	currTid := 0
-	addrList := make([]uint64, 0, 10240)
+	// 使用双重缓冲来降低开销
+	buffer := [][]uint64{make([]uint64, 0, 20000), make([]uint64, 0, 20000)}
+	using := 0
+	addrList := buffer[using]
 	cMap := make(map[int]algorithm.RTHCalculator)
+	wg := sync.WaitGroup{}
 	for cnt, err = reader.Read(buf); err == nil || (err == io.EOF && cnt != 0); cnt, err = reader.Read(buf) {
+		m.readCnt++
 		data := binary.LittleEndian.Uint64(buf)
 		if data == 0 {
 			// 上一次结束
@@ -85,11 +87,15 @@ func (m *pinRecorder) pinTraceReader(resChan chan map[int]algorithm.RTHCalculato
 				c = m.factory(currTid)
 				cMap[currTid] = c
 			}
-			c.Update(addrList)
+			wg.Wait()
+			wg.Add(1)
+			go func(list []uint64) {
+				c.Update(list)
+				wg.Done()
+			}(addrList)
 
-			// 重新初始化
+			addrList = buffer[1^using]
 			currTid = 0
-			addrList = addrList[:0]
 			continue
 		}
 		if currTid == 0 {
@@ -99,7 +105,12 @@ func (m *pinRecorder) pinTraceReader(resChan chan map[int]algorithm.RTHCalculato
 		}
 	}
 
+	fmt.Println("结束了")
+	_ = m.pinCmd.Process.Kill()
+	_ = m.pinCmd.Wait()
+	_ = os.Remove(m.fifoPath)
 	resChan <- cMap
+	close(resChan)
 }
 
 func (m *pinRecorder) Start() (<-chan map[int]algorithm.RTHCalculator, error) {
@@ -108,6 +119,8 @@ func (m *pinRecorder) Start() (<-chan map[int]algorithm.RTHCalculator, error) {
 		return nil, errors.Wrap(err, "创建具名管道失败")
 	}
 
+	m.pinCmd.Stderr = os.Stderr
+	m.pinCmd.Stdout = os.Stdout
 	err = m.pinCmd.Start()
 	if err != nil {
 		_ = os.Remove(m.fifoPath)
@@ -116,6 +129,14 @@ func (m *pinRecorder) Start() (<-chan map[int]algorithm.RTHCalculator, error) {
 	resChan := make(chan map[int]algorithm.RTHCalculator, 1)
 
 	go m.pinTraceReader(resChan)
+	go func(p *pinRecorder) {
+		cnt := uint(0)
+		for {
+			<-time.After(time.Second)
+			fmt.Printf("Curr: %-10d Total: %d\n", p.readCnt-cnt, p.readCnt)
+			cnt = p.readCnt
+		}
+	}(m)
 	return resChan, nil
 }
 
