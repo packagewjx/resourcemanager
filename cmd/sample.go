@@ -38,11 +38,13 @@ var sampleCmd = &cobra.Command{
 
 		recorder := pin.NewMemRunRecorder(func(tid int) algorithm.RTHCalculator {
 			return algorithm.ReservoirCalculator(100000)
-		}, "/home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so", args[0], args[1:]...)
+		}, pin.DefaultWriteThreshold, pin.DefaultPinBufferSize,
+			"/home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so", "sample",
+			args[0], args[1:]...)
 		fmt.Println("开始采样")
 		ch, err := recorder.Start()
 		if err != nil {
-			fmt.Println("启动Pin录制出错", err)
+			fmt.Println(err)
 			os.Exit(1)
 		}
 		m := <-ch
