@@ -22,39 +22,62 @@ type MemRecorder interface {
 
 type RTHCalculatorFactory func(tid int) algorithm.RTHCalculator
 
+type MemRecorderBaseConfig struct {
+	Factory        RTHCalculatorFactory
+	WriteThreshold int
+	PinBufferSize  int
+	PinStopAt      int
+	PinToolPath    string
+	GroupName      string
+}
+
+type MemRecorderRunConfig struct {
+	MemRecorderBaseConfig
+	Cmd  string
+	Args []string
+}
+
+type MemRecorderAttachConfig struct {
+	MemRecorderBaseConfig
+	Pid int
+}
+
 const (
 	DefaultWriteThreshold = 16000
 	DefaultPinBufferSize  = 8000
+	DefaultStopAt         = 5000000000
 )
 
-func NewMemAttachRecorder(factory RTHCalculatorFactory, writeThreshold, pinBufferSize, pid int, pinToolPath string, groupName string) MemRecorder {
+func NewMemAttachRecorder(config *MemRecorderAttachConfig) MemRecorder {
 	fifoPath := mkTempFifo()
-	pinToolPath, _ = filepath.Abs(pinToolPath)
-	cmd := exec.Command("pin", "-p", fmt.Sprintf("%d", pid), "-t",
-		pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize", fmt.Sprintf("%d", pinBufferSize))
+	pinToolPath, _ := filepath.Abs(config.PinToolPath)
+	cmd := exec.Command("pin", "-pid", fmt.Sprintf("%d", config.Pid), "-t",
+		pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize", fmt.Sprintf("%d", config.PinBufferSize),
+		"-stopat", fmt.Sprintf("%d", config.PinStopAt))
 
-	return &pinRecorder{
-		writeThreshold: writeThreshold,
-		pinCmd:         cmd,
-		factory:        factory,
-		fifoPath:       fifoPath,
-		logger:         log.New(os.Stdout, fmt.Sprintf("pin-record-%s: ", groupName), log.LstdFlags|log.Lmsgprefix),
-	}
+	return newMemRecorder(&config.MemRecorderBaseConfig, fifoPath, cmd)
 }
 
-func NewMemRunRecorder(factory RTHCalculatorFactory, writeThreshold, pinBufferSize int, pinToolPath, groupName, cmd string, args ...string) MemRecorder {
+func NewMemRunRecorder(config *MemRecorderRunConfig) MemRecorder {
 	fifoPath := mkTempFifo()
-	pinToolPath, _ = filepath.Abs(pinToolPath)
-	pinArgs := []string{"-t", pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize", fmt.Sprintf("%d", pinBufferSize), "--", cmd}
-	pinArgs = append(pinArgs, args...)
+	pinToolPath, _ := filepath.Abs(config.PinToolPath)
+	pinArgs := []string{"-t", pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize",
+		fmt.Sprintf("%d", config.PinBufferSize), "-stopat", fmt.Sprintf("%d", config.PinStopAt), "--", config.Cmd}
+	pinArgs = append(pinArgs, config.Args...)
 	pinCmd := exec.Command("pin", pinArgs...)
 
+	return newMemRecorder(&config.MemRecorderBaseConfig, fifoPath, pinCmd)
+}
+
+func newMemRecorder(config *MemRecorderBaseConfig, fifoPath string, pinCmd *exec.Cmd) MemRecorder {
 	return &pinRecorder{
-		writeThreshold: writeThreshold,
+		writeThreshold: config.WriteThreshold,
 		pinCmd:         pinCmd,
-		factory:        factory,
+		factory:        config.Factory,
 		fifoPath:       fifoPath,
-		logger:         log.New(os.Stdout, fmt.Sprintf("pin-record-%s: ", groupName), log.LstdFlags|log.Lmsgprefix),
+		readCnt:        0,
+		running:        false,
+		logger:         log.New(os.Stdout, fmt.Sprintf("pin-record-%s: ", config.GroupName), log.LstdFlags|log.Lmsgprefix),
 	}
 }
 
@@ -129,6 +152,7 @@ func (m *pinRecorder) pinTraceReader(resChan chan map[int]algorithm.RTHCalculato
 			addrList = append(addrList, data&0xFFFFFFFFFFFFFFC0)
 		}
 	}
+	wg.Wait() // 读取完毕后可能还没有计算完毕，需要等待
 	if err != nil && err != io.EOF {
 		fmt.Println("读取异常结束", err)
 	}
@@ -139,14 +163,18 @@ func (m *pinRecorder) pinTraceReader(resChan chan map[int]algorithm.RTHCalculato
 }
 
 func (m *pinRecorder) pinRunner(errCh chan<- error) {
-	m.pinCmd.Stdout = &logWriter{
+	l := &logWriter{
 		prefix: "Pin进程输出： ",
 		logger: m.logger,
 	}
+	m.pinCmd.Stdout = l
+	m.pinCmd.Stderr = l
 
 	err := m.pinCmd.Run()
 	if err != nil {
 		errCh <- errors.Wrap(err, "运行Pin异常")
+	} else {
+		errCh <- nil
 	}
 	m.logger.Printf("Pin进程 %d 已退出，状态码 %d", m.pinCmd.Process.Pid, m.pinCmd.ProcessState.ExitCode())
 }
@@ -169,12 +197,16 @@ func (m *pinRecorder) Start() (<-chan map[int]algorithm.RTHCalculator, error) {
 	// 等待一段时间确保Pin成功运行，否则会引起OpenFile堵塞
 	select {
 	case <-time.After(500 * time.Millisecond):
+		go func() {
+			<-errCh
+			close(errCh)
+		}()
 	case err := <-errCh:
-		return nil, err
+		close(errCh)
+		if err != nil {
+			return nil, err
+		}
 	}
-	go func() {
-		<-errCh
-	}()
 
 	resChan := make(chan map[int]algorithm.RTHCalculator, 1)
 	m.logger.Println("采集开始")

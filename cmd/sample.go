@@ -17,55 +17,53 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/packagewjx/resourcemanager/internal/algorithm"
 	"github.com/packagewjx/resourcemanager/internal/pin"
 	"github.com/spf13/cobra"
 	"os"
-	"strings"
 )
 
 var sampleMaxRTHTime int
+var sampleBufferSize int
+var sampleStopAt int
+var sampleWriteThreshold int
 
 // sampleCmd represents the sample command
 var sampleCmd = &cobra.Command{
 	Use:   "sample cmd args",
-	Short: "运行pin并获取RTH",
-	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) == 0 {
-			fmt.Println("参数不对")
-			os.Exit(1)
-		}
-
-		recorder := pin.NewMemRunRecorder(func(tid int) algorithm.RTHCalculator {
-			return algorithm.ReservoirCalculator(100000)
-		}, pin.DefaultWriteThreshold, pin.DefaultPinBufferSize,
-			"/home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so", "sample",
-			args[0], args[1:]...)
-		fmt.Println("开始采样")
-		ch, err := recorder.Start()
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-		m := <-ch
-		fmt.Println("采样结束，正在输出结果")
-		args[0] = strings.ReplaceAll(args[0], "/", "_")
-		filePrefix := strings.Join(args, "_")
-		for tid, calculator := range m {
-			calculator.GetRTH(sampleMaxRTHTime)
-			outFile, err := os.Create(fmt.Sprintf("%s_%d.csv", filePrefix, tid))
-			if err != nil {
-				fmt.Println("无法创建输出文件", err)
-				os.Exit(1)
-			}
-			calculator.WriteAsCsv(sampleMaxRTHTime, outFile)
-			_ = outFile.Close()
-		}
-	},
+	Short: "运行pin并获取RTH。有两种采集模式，看子命令。",
 }
 
 func init() {
 	rootCmd.AddCommand(sampleCmd)
 
-	sampleCmd.Flags().IntVarP(&sampleMaxRTHTime, "max-time", "t", 100000, "最大RTH时间")
+	sampleCmd.PersistentFlags().IntVarP(&sampleMaxRTHTime, "max-time", "t", 100000,
+		"最大RTH时间")
+	sampleCmd.PersistentFlags().IntVarP(&sampleBufferSize, "buffer-size", "b", pin.DefaultPinBufferSize,
+		"pin缓冲大小")
+	sampleCmd.PersistentFlags().IntVarP(&sampleWriteThreshold, "write-threshold", "w", pin.DefaultWriteThreshold,
+		"消费数据阈值")
+	sampleCmd.PersistentFlags().IntVarP(&sampleStopAt, "stop-at", "s", pin.DefaultStopAt,
+		"采集内存数据总数")
+
+}
+
+func sampleCommandExecute(recorder pin.MemRecorder) {
+	fmt.Println("开始采样")
+	ch, err := recorder.Start()
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	m := <-ch
+	fmt.Println("采样结束，正在输出结果")
+	for tid, calculator := range m {
+		calculator.GetRTH(sampleMaxRTHTime)
+		outFile, err := os.Create(fmt.Sprintf("sample_%d.csv", tid))
+		if err != nil {
+			fmt.Println("无法创建输出文件", err)
+			os.Exit(1)
+		}
+		calculator.WriteAsCsv(sampleMaxRTHTime, outFile)
+		_ = outFile.Close()
+	}
 }
