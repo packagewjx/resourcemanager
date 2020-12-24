@@ -2,6 +2,7 @@ package pin
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
@@ -17,7 +18,7 @@ import (
 )
 
 type MemRecorder interface {
-	Start() (<-chan map[int]algorithm.RTHCalculator, error)
+	Start(ctx context.Context) (<-chan map[int]algorithm.RTHCalculator, error)
 }
 
 type RTHCalculatorFactory func(tid int) algorithm.RTHCalculator
@@ -76,7 +77,6 @@ func newMemRecorder(config *MemRecorderBaseConfig, fifoPath string, pinCmd *exec
 		factory:        config.Factory,
 		fifoPath:       fifoPath,
 		readCnt:        0,
-		running:        false,
 		logger:         log.New(os.Stdout, fmt.Sprintf("pin-record-%s: ", config.GroupName), log.LstdFlags|log.Lmsgprefix),
 	}
 }
@@ -87,13 +87,12 @@ type pinRecorder struct {
 	factory        RTHCalculatorFactory
 	fifoPath       string
 	readCnt        uint // 性能优化使用，监测读取速度
-	running        bool
 	logger         *log.Logger
 }
 
-func (m *pinRecorder) pinTraceReader(resChan chan map[int]algorithm.RTHCalculator) {
+func (m *pinRecorder) pinTraceReader(ctx context.Context, resChan chan map[int]algorithm.RTHCalculator, cancelFunc context.CancelFunc) {
 	defer func() {
-		m.running = false
+		cancelFunc()
 		_ = m.pinCmd.Process.Kill()
 		_ = os.Remove(m.fifoPath)
 		close(resChan)
@@ -114,7 +113,17 @@ func (m *pinRecorder) pinTraceReader(resChan chan map[int]algorithm.RTHCalculato
 	cMap := make(map[int]algorithm.RTHCalculator)
 	wg := sync.WaitGroup{}
 	m.logger.Println("开始从管道读取监控数据")
+outerLoop:
 	for cnt, err = reader.Read(buf); err == nil || (err == io.EOF && cnt != 0); cnt, err = reader.Read(buf) {
+		select {
+		case <-ctx.Done():
+			m.logger.Println("采集中途结束")
+			// 需要将管道内容重导向到null
+			_ = exec.Command("cat", m.fifoPath, ">", "/dev/null").Run()
+			break outerLoop
+		default:
+		}
+
 		m.readCnt++
 		data := binary.LittleEndian.Uint64(buf)
 		if data == 0 {
@@ -179,22 +188,24 @@ func (m *pinRecorder) pinRunner(errCh chan<- error) {
 	m.logger.Printf("Pin进程 %d 已退出，状态码 %d", m.pinCmd.Process.Pid, m.pinCmd.ProcessState.ExitCode())
 }
 
-func (m *pinRecorder) reporter() {
+func (m *pinRecorder) reporter(ctx context.Context) {
 	cnt := uint(0)
-	for m.running {
-		<-time.After(time.Second)
-		m.logger.Printf("采集速度： %10d/s 已采集： %d\n", m.readCnt-cnt, m.readCnt)
-		cnt = m.readCnt
+	for {
+		select {
+		case <-time.After(time.Second):
+			m.logger.Printf("采集速度： %10d/s 已采集： %d\n", m.readCnt-cnt, m.readCnt)
+			cnt = m.readCnt
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
-func (m *pinRecorder) Start() (<-chan map[int]algorithm.RTHCalculator, error) {
-	m.running = true
-
+func (m *pinRecorder) Start(childCtx context.Context) (<-chan map[int]algorithm.RTHCalculator, error) {
 	errCh := make(chan error)
 	go m.pinRunner(errCh)
 
-	// 等待一段时间确保Pin成功运行，否则会引起OpenFile堵塞
+	// 确保Pin成功运行，否则会引起OpenFile堵塞
 	select {
 	case <-time.After(500 * time.Millisecond):
 		go func() {
@@ -208,10 +219,11 @@ func (m *pinRecorder) Start() (<-chan map[int]algorithm.RTHCalculator, error) {
 		}
 	}
 
+	childCtx, cancel := context.WithCancel(childCtx)
 	resChan := make(chan map[int]algorithm.RTHCalculator, 1)
 	m.logger.Println("采集开始")
-	go m.pinTraceReader(resChan)
-	go m.reporter()
+	go m.pinTraceReader(childCtx, resChan, cancel)
+	go m.reporter(childCtx)
 	return resChan, nil
 }
 
