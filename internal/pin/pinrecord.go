@@ -24,6 +24,7 @@ type MemRecorder interface {
 type RTHCalculatorFactory func(tid int) algorithm.RTHCalculator
 
 type MemRecorderBaseConfig struct {
+	Kill           bool
 	Factory        RTHCalculatorFactory
 	WriteThreshold int
 	PinBufferSize  int
@@ -72,16 +73,18 @@ func NewMemRunRecorder(config *MemRecorderRunConfig) MemRecorder {
 
 func newMemRecorder(config *MemRecorderBaseConfig, fifoPath string, pinCmd *exec.Cmd) MemRecorder {
 	return &pinRecorder{
+		kill:           config.Kill,
 		writeThreshold: config.WriteThreshold,
 		pinCmd:         pinCmd,
 		factory:        config.Factory,
 		fifoPath:       fifoPath,
 		readCnt:        0,
-		logger:         log.New(os.Stdout, fmt.Sprintf("pin-record-%s: ", config.GroupName), log.LstdFlags|log.Lmsgprefix),
+		logger:         log.New(os.Stdout, fmt.Sprintf("pin-record-%s: ", config.GroupName), log.LstdFlags|log.Lmsgprefix|log.Lshortfile),
 	}
 }
 
 type pinRecorder struct {
+	kill           bool
 	writeThreshold int
 	pinCmd         *exec.Cmd
 	factory        RTHCalculatorFactory
@@ -93,7 +96,13 @@ type pinRecorder struct {
 func (m *pinRecorder) pinTraceReader(ctx context.Context, resChan chan map[int]algorithm.RTHCalculator, cancelFunc context.CancelFunc) {
 	defer func() {
 		cancelFunc()
-		_ = m.pinCmd.Process.Kill()
+		if m.kill {
+			// 由于结束太快，会导致Process为nil，需要等待一下再发信号
+			for m.pinCmd.Process == nil {
+				<-time.After(100 * time.Millisecond)
+			}
+			_ = m.pinCmd.Process.Kill()
+		}
 		_ = os.Remove(m.fifoPath)
 		close(resChan)
 	}()

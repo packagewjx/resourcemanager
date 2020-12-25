@@ -16,6 +16,7 @@ limitations under the License.
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/pin"
 	"github.com/spf13/cobra"
@@ -44,12 +45,11 @@ func init() {
 		"消费数据阈值")
 	sampleCmd.PersistentFlags().IntVarP(&sampleStopAt, "stop-at", "s", pin.DefaultStopAt,
 		"采集内存数据总数")
-
 }
 
 func sampleCommandExecute(recorder pin.MemRecorder) {
 	fmt.Println("开始采样")
-	ch, err := recorder.Start()
+	ch, err := recorder.Start(context.Background())
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

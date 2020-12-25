@@ -55,14 +55,15 @@ type fakeMonitorImpl struct {
 
 var _ resourcemonitor.Monitor = &fakeMonitorImpl{}
 
-func (f fakeMonitorImpl) AddProcess(_ *resourcemonitor.Request) {
+func (f fakeMonitorImpl) MonitorGroup(rq *resourcemonitor.Request) {
+	return
 }
 
-func (f fakeMonitorImpl) RemoveProcess(_ string) {
+func (f fakeMonitorImpl) RemoveMonitorGroup(_ string) {
 }
 
 func (f fakeMonitorImpl) Start(_ context.Context) {
 }
 
-func (f fakeMonitorImpl) ShutDownNow() {
+func (f fakeMonitorImpl) WaitForShutdown() {
 }

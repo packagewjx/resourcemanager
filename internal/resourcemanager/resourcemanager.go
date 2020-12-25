@@ -61,10 +61,7 @@ func New(config *Config) (ResourceManager, error) {
 		return nil, errors.Wrap(err, "创建Kubernetes客户端发生错误")
 	}
 
-	m, err := resourcemonitor.New(config.Interval, config.ReservoirSize, config.MaxRthTime)
-	if err != nil {
-		return nil, errors.Wrap(err, "创建资源监控错误")
-	}
+	m := resourcemonitor.New(context.Background(), resourcemonitor.DefaultConfig())
 
 	return &impl{
 		client:  client,
