@@ -26,13 +26,16 @@ func TestGetInfo(t *testing.T) {
 }
 
 func TestSetControlScheme(t *testing.T) {
-	schemes := make([]*ControlScheme, 1)
+	schemes := make([]*CLOSScheme, 1)
 	pid := os.Getpid()
-	schemes[0] = &ControlScheme{
-		clos:        1,
-		pidList:     []int{pid},
-		llc:         0,
-		mbaThrottle: 0,
+	schemes[0] = &CLOSScheme{
+		CLOSNum: 1,
+		ProcessGroups: []*ProcessGroup{{
+			Id:  "test",
+			Pid: []int{pid},
+		}},
+		WayBit:      0,
+		MemThrottle: 0,
 	}
 
 	err := SetControlScheme(schemes)

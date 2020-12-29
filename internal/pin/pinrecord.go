@@ -30,6 +30,7 @@ type MemRecorderBaseConfig struct {
 	PinBufferSize  int
 	PinStopAt      int
 	PinToolPath    string
+	RootDir        string
 	GroupName      string
 }
 
@@ -67,7 +68,6 @@ func NewMemRunRecorder(config *MemRecorderRunConfig) MemRecorder {
 		fmt.Sprintf("%d", config.PinBufferSize), "-stopat", fmt.Sprintf("%d", config.PinStopAt), "--", config.Cmd}
 	pinArgs = append(pinArgs, config.Args...)
 	pinCmd := exec.Command("pin", pinArgs...)
-
 	return newMemRecorder(&config.MemRecorderBaseConfig, fifoPath, pinCmd)
 }
 
@@ -224,6 +224,7 @@ func (m *pinRecorder) Start(childCtx context.Context) (<-chan map[int]algorithm.
 	case err := <-errCh:
 		close(errCh)
 		if err != nil {
+			_ = os.Remove(m.fifoPath)
 			return nil, err
 		}
 	}

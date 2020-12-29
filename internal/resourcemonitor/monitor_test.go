@@ -3,6 +3,7 @@ package resourcemonitor
 import (
 	"context"
 	"fmt"
+	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 	"github.com/stretchr/testify/assert"
 	"sync"
@@ -38,14 +39,16 @@ func TestMonitorProcess(t *testing.T) {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
-	monitor.MonitorGroup(&Request{
-		GroupId: "test",
-		PidList: []int{pid},
-		OnFinish: func(request *Request, result []*MonitorResult) {
+	monitor.MemoryTrace(&MemoryTraceRequest{
+		ProcessGroup: core.ProcessGroup{
+			Id:  "test",
+			Pid: []int{pid},
+		},
+		OnFinish: func(request *MemoryTraceRequest, result []*MonitorResult) {
 			checkResult(t, result)
 			wg.Done()
 		},
-		OnError: func(request *Request, err error) {
+		OnError: func(request *MemoryTraceRequest, err error) {
 			wg.Done()
 			assert.FailNow(t, err.Error())
 		},
@@ -61,11 +64,13 @@ func TestNonExistProcess(t *testing.T) {
 	errored := false
 	wg := sync.WaitGroup{}
 	wg.Add(1)
-	monitor.MonitorGroup(&Request{
-		GroupId:  "test",
-		PidList:  []int{10000000},
+	monitor.MemoryTrace(&MemoryTraceRequest{
+		ProcessGroup: core.ProcessGroup{
+			Id:  "test",
+			Pid: []int{10000000},
+		},
 		OnFinish: nil,
-		OnError: func(request *Request, err error) {
+		OnError: func(request *MemoryTraceRequest, err error) {
 			errored = true
 			wg.Done()
 		},
@@ -86,14 +91,16 @@ func TestAddProcessExceedRMID(t *testing.T) {
 	for i := 0; i < len(pidList); i++ {
 		pidList[i] = utils.ForkRunExample(1)
 		wg.Add(1)
-		monitor.MonitorGroup(&Request{
-			GroupId: fmt.Sprintf("group-%d", i),
-			PidList: []int{pidList[i]},
-			OnFinish: func(request *Request, result []*MonitorResult) {
+		monitor.MemoryTrace(&MemoryTraceRequest{
+			ProcessGroup: core.ProcessGroup{
+				Id:  fmt.Sprintf("group-%d", i),
+				Pid: []int{pidList[i]},
+			},
+			OnFinish: func(request *MemoryTraceRequest, result []*MonitorResult) {
 				checkResult(t, result)
 				wg.Done()
 			},
-			OnError: func(request *Request, err error) {
+			OnError: func(request *MemoryTraceRequest, err error) {
 				t.Log(err)
 				errored = true
 				wg.Done()
