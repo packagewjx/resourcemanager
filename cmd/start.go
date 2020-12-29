@@ -51,19 +51,7 @@ var startCmd = &cobra.Command{
 		return core.LibInit()
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		manager, err := resourcemanager.New(&resourcemanager.Config{
-			CaFile:        caFile,
-			TokenFile:     tokenFile,
-			Interval:      interval,
-			Insecure:      insecure,
-			Host:          host,
-			ReservoirSize: reservoirSize,
-			MaxRthTime:    maxRthTime,
-		})
-		if err != nil {
-			return err
-		}
-		return manager.Run()
+		return nil
 	},
 	PostRun: func(cmd *cobra.Command, args []string) {
 		_ = core.LibFinalize()
@@ -73,8 +61,6 @@ var startCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(startCmd)
 
-	startCmd.Flags().IntVarP(&interval, "interval", "i", resourcemanager.DefaultInterval,
-		"默认取样周期")
 	startCmd.Flags().StringVarP(&tokenFile, "token-file", "t", "",
 		"用于访问集群的Service Account Token")
 	startCmd.Flags().StringVarP(&caFile, "ca-file", "c", "",
