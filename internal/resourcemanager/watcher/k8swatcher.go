@@ -1,4 +1,4 @@
-package resourcemanager
+package watcher
 
 import (
 	"context"
@@ -26,26 +26,17 @@ type K8sWatcherConfig struct {
 const DefaultHost = "https://localhost:8443"
 
 type k8sWatcher struct {
-	ctx         context.Context
 	client      *kubernetes.Clientset
 	podPidQuery k8s.PodPidQuery
-	channels    []chan *ProcessGroupStatus
+	base        *baseChannelWatcher
 }
 
 func (p *k8sWatcher) StopWatch(ch <-chan *ProcessGroupStatus) {
-	for i := 0; i < len(p.channels); i++ {
-		if p.channels[i] == ch {
-			// 可能会有竞争问题
-			close(p.channels[i])
-			p.channels = append(p.channels[:i], p.channels[i+1:]...)
-		}
-	}
+	p.base.StopWatch(ch)
 }
 
 func (p *k8sWatcher) Watch() <-chan *ProcessGroupStatus {
-	ch := make(chan *ProcessGroupStatus, 1)
-	p.channels = append(p.channels, ch)
-	return ch
+	return p.base.Watch()
 }
 
 func NewK8sWatcher(ctx context.Context, config *K8sWatcherConfig) (ProcessGroupWatcher, error) {
@@ -80,7 +71,7 @@ func NewK8sWatcher(ctx context.Context, config *K8sWatcherConfig) (ProcessGroupW
 	w := &k8sWatcher{
 		client:      client,
 		podPidQuery: service,
-		channels:    make([]chan *ProcessGroupStatus, 0, 4),
+		base:        &baseChannelWatcher{channels: []chan *ProcessGroupStatus{}},
 	}
 	go w.run(ctx, podWatchInterface)
 	return w, nil
@@ -109,15 +100,14 @@ func (p *k8sWatcher) run(ctx context.Context, watchInterface watch.Interface) {
 			case watch.Modified:
 				condition = ProcessGroupStatusUpdate
 			}
-			for _, ch := range p.channels {
-				ch <- &ProcessGroupStatus{
-					Group: core.ProcessGroup{
-						Id:  pod.Name,
-						Pid: pidList,
-					},
-					Status: condition,
-				}
+			s := &ProcessGroupStatus{
+				Group: core.ProcessGroup{
+					Id:  pod.Name,
+					Pid: pidList,
+				},
+				Status: condition,
 			}
+			p.base.notifyAll(s)
 
 		case <-ctx.Done():
 			logger.Println("Kubernetes监视器关闭")

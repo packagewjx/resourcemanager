@@ -18,7 +18,7 @@ package cmd
 import (
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/core"
-	"github.com/packagewjx/resourcemanager/internal/resourcemanager"
+	"github.com/packagewjx/resourcemanager/internal/resourcemanager/watcher"
 	"github.com/packagewjx/resourcemanager/internal/resourcemonitor"
 	"github.com/spf13/cobra"
 )
@@ -67,7 +67,7 @@ func init() {
 		"集群CA文件")
 	startCmd.Flags().BoolVarP(&insecure, "insecure", "n", false,
 		"支持TSL不安全连接")
-	startCmd.Flags().StringVarP(&host, "host", "h", resourcemanager.DefaultHost,
+	startCmd.Flags().StringVarP(&host, "host", "h", watcher.DefaultHost,
 		"Kubernetes API地址")
 	startCmd.Flags().IntVarP(&reservoirSize, "reservoir-size", "r", resourcemonitor.DefaultReservoirSize,
 		"内存使用追踪时Reservoir Sampling方法的Reservoir大小")
