@@ -15,47 +15,52 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 const (
-	perfL1Hit        = "mem_load_retired.l1_hit"
-	perfL2Hit        = "mem_load_retired.l2_hit"
-	perfL3Hit        = "mem_load_retired.l3_hit"
-	perfL3Miss       = "mem_load_retired.l3_miss"
 	perfInstructions = "instructions"
-	perfStatEvents   = perfL1Hit + "," + perfL2Hit + "," + perfL3Hit + "," + perfL3Miss + "," + perfInstructions
+	perfCycles       = "cycles"
+	perfAllLoads     = "L1-dcache-loads"
+	perfAllStores    = "L1-dcache-stores"
+	perfLoadMisses   = "LLC-load-misses"
+	perfStoreMisses  = "LLC-store-misses"
+	perfStatEvents   = perfAllLoads + "," + perfAllStores + "," + perfLoadMisses + "," + perfStoreMisses + "," + perfInstructions + "," + perfCycles
 )
 
-type StatFinishFunc func(group *core.ProcessGroup, record *PerfStat)
+type StatFinishFunc func(group *core.ProcessGroup, record *PerfStatResult)
 
-type PerfStat struct {
-	L1Hit        uint64
-	L2Hit        uint64
-	L3Hit        uint64
-	L3Miss       uint64
-	Instructions uint64
+type PerfStatResult struct {
+	Group          *core.ProcessGroup
+	Error          error
+	AllLoads       uint64
+	AllStores      uint64
+	LLCLoadMisses  uint64
+	LLCStoreMisses uint64
+	Instructions   uint64
+	Cycles         uint64
 }
 
 type PerfStatRunner interface {
-	Start(ctx context.Context) error
+	Start(ctx context.Context) <-chan *PerfStatResult
 }
 
-func NewPerfStatRunner(group *core.ProcessGroup, onFinish StatFinishFunc) PerfStatRunner {
+func NewPerfStatRunner(group *core.ProcessGroup, sampleTime time.Duration) PerfStatRunner {
 	return &perfStatRunner{
-		group:    group,
-		logger:   log.New(os.Stdout, "PerfStat-"+group.Id+": ", log.Lshortfile|log.Lmsgprefix|log.LstdFlags),
-		statOut:  make([]byte, 0, 1024),
-		onFinish: onFinish,
-		wg:       sync.WaitGroup{},
+		group:      group,
+		logger:     log.New(os.Stdout, "PerfStat-"+group.Id+": ", log.Lshortfile|log.Lmsgprefix|log.LstdFlags),
+		statOut:    make([]byte, 0, 1024),
+		wg:         sync.WaitGroup{},
+		sampleTime: sampleTime,
 	}
 }
 
 type perfStatRunner struct {
-	group    *core.ProcessGroup
-	logger   *log.Logger
-	statOut  []byte
-	onFinish StatFinishFunc
-	wg       sync.WaitGroup // 用于等待perf结束
+	group      *core.ProcessGroup
+	logger     *log.Logger
+	statOut    []byte
+	wg         sync.WaitGroup // 用于等待perf结束
+	sampleTime time.Duration
 }
 
 func (p *perfStatRunner) perfRunner(cmd *exec.Cmd) {
@@ -68,8 +73,8 @@ func (p *perfStatRunner) perfRunner(cmd *exec.Cmd) {
 	}
 }
 
-func (p *perfStatRunner) parseResult(out io.Reader) *PerfStat {
-	res := &PerfStat{}
+func (p *perfStatRunner) parseResult(out io.Reader) *PerfStatResult {
+	res := &PerfStatResult{}
 	statRecords, _ := csv.NewReader(out).ReadAll()
 	for _, record := range statRecords {
 		cnt, err := strconv.ParseUint(record[0], 10, 64)
@@ -86,16 +91,18 @@ func (p *perfStatRunner) parseResult(out io.Reader) *PerfStat {
 		switch record[2] {
 		default:
 			p.logger.Printf("出现了未知事件，异常行：%v", record)
-		case perfL1Hit:
-			res.L1Hit = cnt
-		case perfL2Hit:
-			res.L2Hit = cnt
-		case perfL3Hit:
-			res.L3Hit = cnt
-		case perfL3Miss:
-			res.L3Miss = cnt
 		case perfInstructions:
 			res.Instructions = cnt
+		case perfCycles:
+			res.Cycles = cnt
+		case perfAllLoads:
+			res.AllLoads = cnt
+		case perfAllStores:
+			res.AllStores = cnt
+		case perfLoadMisses:
+			res.LLCLoadMisses = cnt
+		case perfStoreMisses:
+			res.LLCStoreMisses = cnt
 		}
 	}
 	// 修正数据
@@ -103,7 +110,7 @@ func (p *perfStatRunner) parseResult(out io.Reader) *PerfStat {
 	return res
 }
 
-func (p *perfStatRunner) Start(ctx context.Context) error {
+func (p *perfStatRunner) Start(ctx context.Context) <-chan *PerfStatResult {
 	pidString := make([]string, len(p.group.Pid))
 	for i, pid := range p.group.Pid {
 		pidString[i] = strconv.FormatInt(int64(pid), 10)
@@ -112,17 +119,24 @@ func (p *perfStatRunner) Start(ctx context.Context) error {
 	statCmd := exec.Command("perf", "stat", "-e", perfStatEvents, "-ip", pidListString, "-x", ",")
 	buffer := bytes.NewBuffer(make([]byte, 0, 1024))
 	statCmd.Stderr = buffer
+	resultCh := make(chan *PerfStatResult, 1)
 
 	p.wg.Add(1)
 	go p.perfRunner(statCmd)
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-time.After(p.sampleTime):
+		case <-ctx.Done():
+		}
 		_ = syscall.Kill(statCmd.Process.Pid, syscall.SIGINT)
 		p.wg.Wait()
 		result := p.parseResult(buffer)
-		p.onFinish(p.group, result)
+		result.Group = p.group
+		result.Error = nil
+		resultCh <- result
+		close(resultCh)
 	}()
-	return nil
+	return resultCh
 }
 
 // 保留本函数测试用

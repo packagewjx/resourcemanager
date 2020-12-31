@@ -10,23 +10,19 @@ import (
 )
 
 func TestPerfStat(t *testing.T) {
-	successCalled := false
 	runner := NewPerfStatRunner(&core.ProcessGroup{
 		Id:  "test",
 		Pid: []int{os.Getpid()},
-	}, func(group *core.ProcessGroup, record *PerfStat) {
-		successCalled = true
-		assert.NotZero(t, record.L3Miss)
-		assert.NotZero(t, record.L1Hit)
-		assert.NotZero(t, record.L2Hit)
-		assert.NotZero(t, record.L3Hit)
-		assert.NotZero(t, record.Instructions)
-	})
-	ctx, cancel := context.WithCancel(context.Background())
-	err := runner.Start(ctx)
-	assert.NoError(t, err)
-	<-time.After(time.Second)
-	cancel()
-	<-time.After(100 * time.Millisecond)
-	assert.True(t, successCalled)
+	}, time.Second)
+
+	ch := runner.Start(context.Background())
+	result := <-ch
+	assert.NoError(t, result.Error)
+	assert.Equal(t, "test", result.Group.Id)
+	assert.NotZero(t, result.AllLoads)
+	assert.NotZero(t, result.AllStores)
+	assert.NotZero(t, result.LLCLoadMisses)
+	assert.NotZero(t, result.LLCStoreMisses)
+	assert.NotZero(t, result.Instructions)
+	assert.NotZero(t, result.Cycles)
 }

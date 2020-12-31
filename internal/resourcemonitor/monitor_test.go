@@ -18,7 +18,7 @@ func init() {
 	testConfig.TotalMemTrace = 100000
 }
 
-func checkResult(t *testing.T, results []*MonitorResult) {
+func checkResult(t *testing.T, results []*MemoryTraceProcessResult) {
 	t.Helper()
 	for _, result := range results {
 		assert.NotEqual(t, 0, result.Pid)
@@ -32,51 +32,35 @@ func checkResult(t *testing.T, results []*MonitorResult) {
 	}
 }
 
-func TestMonitorProcess(t *testing.T) {
+func TestMemTrace(t *testing.T) {
 	pid := utils.ForkRunExample(1)
 
 	monitor := New(context.Background(), testConfig)
-	wg := sync.WaitGroup{}
-	wg.Add(1)
 
-	monitor.MemoryTrace(&MemoryTraceRequest{
-		ProcessGroup: core.ProcessGroup{
+	ch := monitor.MemoryTrace(&MemoryTraceRequest{
+		Group: &core.ProcessGroup{
 			Id:  "test",
 			Pid: []int{pid},
 		},
-		OnFinish: func(request *MemoryTraceRequest, result []*MonitorResult) {
-			checkResult(t, result)
-			wg.Done()
-		},
-		OnError: func(request *MemoryTraceRequest, err error) {
-			wg.Done()
-			assert.FailNow(t, err.Error())
-		},
 	})
-
-	wg.Wait()
+	result := <-ch
+	checkResult(t, result.result)
 
 	_, _ = syscall.Wait4(pid, nil, 0, nil)
 }
 
 func TestNonExistProcess(t *testing.T) {
 	monitor := New(context.Background(), testConfig)
-	errored := false
 	wg := sync.WaitGroup{}
 	wg.Add(1)
-	monitor.MemoryTrace(&MemoryTraceRequest{
-		ProcessGroup: core.ProcessGroup{
+	ch := monitor.MemoryTrace(&MemoryTraceRequest{
+		Group: &core.ProcessGroup{
 			Id:  "test",
 			Pid: []int{10000000},
 		},
-		OnFinish: nil,
-		OnError: func(request *MemoryTraceRequest, err error) {
-			errored = true
-			wg.Done()
-		},
 	})
-	wg.Wait()
-	assert.True(t, errored)
+	result := <-ch
+	assert.Error(t, result.Error)
 
 	monitor.WaitForShutdown()
 }
@@ -84,35 +68,26 @@ func TestNonExistProcess(t *testing.T) {
 func TestAddProcessExceedRMID(t *testing.T) {
 	monitor := New(context.Background(), testConfig)
 
-	wg := sync.WaitGroup{}
-	errored := false
-
 	pidList := make([]int, 8)
+	channels := make([]<-chan *MemoryTraceResult, 0, len(pidList))
 	for i := 0; i < len(pidList); i++ {
 		pidList[i] = utils.ForkRunExample(1)
-		wg.Add(1)
-		monitor.MemoryTrace(&MemoryTraceRequest{
-			ProcessGroup: core.ProcessGroup{
+		ch := monitor.MemoryTrace(&MemoryTraceRequest{
+			Group: &core.ProcessGroup{
 				Id:  fmt.Sprintf("group-%d", i),
 				Pid: []int{pidList[i]},
 			},
-			OnFinish: func(request *MemoryTraceRequest, result []*MonitorResult) {
-				checkResult(t, result)
-				wg.Done()
-			},
-			OnError: func(request *MemoryTraceRequest, err error) {
-				t.Log(err)
-				errored = true
-				wg.Done()
-			},
 		})
+		channels = append(channels, ch)
 	}
 
-	wg.Wait()
+	for _, channel := range channels {
+		result := <-channel
+		assert.NoError(t, result.Error)
+		checkResult(t, result.result)
+	}
 
 	for _, pid := range pidList {
 		_, _ = syscall.Wait4(pid, nil, 0, nil)
 	}
-
-	assert.False(t, errored)
 }
