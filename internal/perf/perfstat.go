@@ -19,12 +19,12 @@ import (
 )
 
 const (
-	perfInstructions = "instructions"
-	perfCycles       = "cycles"
-	perfAllLoads     = "L1-dcache-loads"
-	perfAllStores    = "L1-dcache-stores"
-	perfLoadMisses   = "LLC-load-misses"
-	perfStoreMisses  = "LLC-store-misses"
+	perfInstructions = "instructions:u"
+	perfCycles       = "cycles:u"
+	perfAllLoads     = "L1-dcache-loads:u"
+	perfAllStores    = "L1-dcache-stores:u"
+	perfLoadMisses   = "LLC-load-misses:u"
+	perfStoreMisses  = "LLC-store-misses:u"
 	perfStatEvents   = perfAllLoads + "," + perfAllStores + "," + perfLoadMisses + "," + perfStoreMisses + "," + perfInstructions + "," + perfCycles
 )
 
@@ -95,13 +95,13 @@ func (p *perfStatRunner) parseResult(out io.Reader) *PerfStatResult {
 			res.Instructions = cnt
 		case perfCycles:
 			res.Cycles = cnt
-		case perfAllLoads:
+		case "L1-dcache-loads":
 			res.AllLoads = cnt
-		case perfAllStores:
+		case "L1-dcache-stores":
 			res.AllStores = cnt
-		case perfLoadMisses:
+		case "LLC-load-misses":
 			res.LLCLoadMisses = cnt
-		case perfStoreMisses:
+		case "LLC-store-misses":
 			res.LLCStoreMisses = cnt
 		}
 	}
