@@ -10,6 +10,12 @@ var (
 	ProcessGroupStatusRemove ProcessGroupCondition = "remove"
 )
 
+var ProcessGroupConditionDisplayName = map[ProcessGroupCondition]string{
+	ProcessGroupStatusAdd:    "添加",
+	ProcessGroupStatusUpdate: "更新",
+	ProcessGroupStatusRemove: "移除",
+}
+
 type ProcessGroupStatus struct {
 	Group  core.ProcessGroup
 	Status ProcessGroupCondition

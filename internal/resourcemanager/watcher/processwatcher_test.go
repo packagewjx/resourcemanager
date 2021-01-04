@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"os/exec"
 	"testing"
+	"time"
 )
 
 type myProcess struct {
@@ -183,11 +184,13 @@ func TestWatcher(t *testing.T) {
 			_ = exec.Command("sleep", "1").Run()
 		}
 	}()
-	watcher := NewProcessWatcher([]string{"sleep"})
+	watcher := NewProcessWatcher([]string{"sleep"}, 200*time.Millisecond)
 	ch := watcher.Watch()
 	for i := 0; i < 6; i++ {
 		status := <-ch
 		t.Log(status)
+		assert.NotNil(t, status)
+		assert.NotNil(t, status.Group)
 	}
 	watcher.StopWatch(ch)
 }

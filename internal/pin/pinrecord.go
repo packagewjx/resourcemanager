@@ -24,14 +24,14 @@ type MemRecorder interface {
 type RTHCalculatorFactory func(tid int) algorithm.RTHCalculator
 
 type MemRecorderBaseConfig struct {
-	Kill           bool
+	Kill           bool // 是否需要强制结束pin进程。一般用于command模式。
 	Factory        RTHCalculatorFactory
 	WriteThreshold int
 	PinBufferSize  int
 	PinStopAt      int
 	PinToolPath    string
-	RootDir        string
-	GroupName      string
+	RootDir        string // 预留，用于容器使用
+	GroupName      string // 用于日志显示组名
 }
 
 type MemRecorderRunConfig struct {

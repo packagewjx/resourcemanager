@@ -12,13 +12,12 @@ import (
 	"time"
 )
 
-const tickTime = 200 * time.Millisecond
-
 type processWatcher struct {
 	base        *baseChannelWatcher
 	cancelFunc  context.CancelFunc
 	targetCmd   []string
 	oldGroupMap map[int]*core.ProcessGroup
+	tickTime    time.Duration
 }
 
 func (p *processWatcher) Watch() <-chan *ProcessGroupStatus {
@@ -91,7 +90,7 @@ func diffFamily(oldFamily, newFamily map[int]*core.ProcessGroup) []*ProcessGroup
 func (p *processWatcher) pollRoutine(ctx context.Context) {
 	logger := log.New(os.Stdout, "Process Watcher: ", log.LstdFlags|log.Lshortfile|log.Lmsgprefix)
 	logger.Println("进程监控者启动")
-	tick := time.Tick(tickTime)
+	tick := time.Tick(p.tickTime)
 	set := &processUnionSet{
 		processMap: make(map[int]*processUnionSetEntry),
 		targetCmd:  p.targetCmd,
@@ -119,11 +118,12 @@ func (p *processWatcher) pollRoutine(ctx context.Context) {
 
 // 用于监控本机进程的工具。
 // 目前Pin有Bug无法使用Docker，为了实验需要，先使用直接监控本机进程的方式
-func NewProcessWatcher(targetCmd []string) ProcessGroupWatcher {
+func NewProcessWatcher(targetCmd []string, tickTime time.Duration) ProcessGroupWatcher {
 	return &processWatcher{
 		base:        &baseChannelWatcher{channels: []chan *ProcessGroupStatus{}},
 		targetCmd:   targetCmd,
 		oldGroupMap: map[int]*core.ProcessGroup{},
+		tickTime:    tickTime,
 	}
 }
 
