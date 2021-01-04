@@ -34,16 +34,20 @@ func New(ctx context.Context, config *Config) Monitor {
 	}
 }
 
-func (m *monitorImpl) PerfStat(rq *PerfStatRequest) <-chan *PerfStatResult {
+func (m *monitorImpl) PerfStat(rq *PerfStatRequest) <-chan map[int]*PerfStatResult {
 	perfRunner := perf.NewPerfStatRunner(rq.Group, rq.SampleTime)
 	ch := perfRunner.Start(m.parentCtx)
-	resCh := make(chan *PerfStatResult, 1)
+	resCh := make(chan map[int]*PerfStatResult, 1)
 
-	go func(perfCh <-chan *perf.PerfStatResult, resultChan chan *PerfStatResult) {
+	go func(perfCh <-chan map[int]*perf.PerfStatResult, resultChan chan map[int]*PerfStatResult) {
 		result := <-perfCh
-		resultChan <- &PerfStatResult{
-			PerfStatResult: *result,
+		resultMap := make(map[int]*PerfStatResult)
+		for pid, statResult := range result {
+			resultMap[pid] = &PerfStatResult{
+				PerfStatResult: *statResult,
+			}
 		}
+		resultChan <- resultMap
 	}(ch, resCh)
 	return resCh
 }
@@ -67,7 +71,7 @@ func (m *monitorImpl) MemoryTrace(rq *MemoryTraceRequest) <-chan *MemoryTraceRes
 			resultCh <- &MemoryTraceResult{
 				Group:  rq.Group,
 				Error:  err,
-				result: nil,
+				Result: nil,
 			}
 			return
 		}
@@ -77,7 +81,7 @@ func (m *monitorImpl) MemoryTrace(rq *MemoryTraceRequest) <-chan *MemoryTraceRes
 		resultCh <- &MemoryTraceResult{
 			Group:  rq.Group,
 			Error:  err,
-			result: result,
+			Result: result,
 		}
 		close(resultCh)
 	}(rq, ch)

@@ -16,13 +16,14 @@ func TestPerfStat(t *testing.T) {
 	}, time.Second)
 
 	ch := runner.Start(context.Background())
-	result := <-ch
-	assert.NoError(t, result.Error)
-	assert.Equal(t, "test", result.Group.Id)
-	assert.NotZero(t, result.AllLoads)
-	assert.NotZero(t, result.AllStores)
-	assert.NotZero(t, result.LLCLoadMisses)
-	assert.NotZero(t, result.LLCStoreMisses)
-	assert.NotZero(t, result.Instructions)
-	assert.NotZero(t, result.Cycles)
+	resultMap := <-ch
+	for _, result := range resultMap {
+		assert.NoError(t, result.Error)
+		assert.NotZero(t, result.AllLoads)
+		assert.NotZero(t, result.AllStores)
+		assert.NotZero(t, result.LLCLoadMisses)
+		assert.NotZero(t, result.LLCStoreMisses)
+		assert.NotZero(t, result.Instructions)
+		assert.NotZero(t, result.Cycles)
+	}
 }

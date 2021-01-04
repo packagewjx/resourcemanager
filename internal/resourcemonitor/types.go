@@ -18,7 +18,7 @@ var (
 
 type Monitor interface {
 	MemoryTrace(rq *MemoryTraceRequest) <-chan *MemoryTraceResult // 添加进程到监控队列。若监控队列已满，将会把进程放入等待队列。完成监控时将会调用onFinish函数。出错则调用onError函数
-	PerfStat(rq *PerfStatRequest) <-chan *PerfStatResult          // 监控IPC、L1Hit等指标
+	PerfStat(rq *PerfStatRequest) <-chan map[int]*PerfStatResult  // 监控IPC、L1Hit等指标
 	WaitForShutdown()                                             // 等待所有监控结束。必须在parentContext结束后调用，否则可能陷入无限等待
 }
 
@@ -29,7 +29,7 @@ type MemoryTraceRequest struct {
 type MemoryTraceResult struct {
 	Group  *core.ProcessGroup
 	Error  error
-	result []*MemoryTraceProcessResult
+	Result []*MemoryTraceProcessResult
 }
 
 type PerfStatRequest struct {

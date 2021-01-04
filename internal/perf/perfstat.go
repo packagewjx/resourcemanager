@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -31,7 +30,7 @@ const (
 type StatFinishFunc func(group *core.ProcessGroup, record *PerfStatResult)
 
 type PerfStatResult struct {
-	Group          *core.ProcessGroup
+	Pid            int
 	Error          error
 	AllLoads       uint64
 	AllStores      uint64
@@ -42,14 +41,13 @@ type PerfStatResult struct {
 }
 
 type PerfStatRunner interface {
-	Start(ctx context.Context) <-chan *PerfStatResult
+	Start(ctx context.Context) <-chan map[int]*PerfStatResult
 }
 
 func NewPerfStatRunner(group *core.ProcessGroup, sampleTime time.Duration) PerfStatRunner {
 	return &perfStatRunner{
 		group:      group,
-		logger:     log.New(os.Stdout, "PerfStat-"+group.Id+": ", log.Lshortfile|log.Lmsgprefix|log.LstdFlags),
-		statOut:    make([]byte, 0, 1024),
+		logger:     log.New(os.Stdout, fmt.Sprintf("perfstat-%s: ", group.Id), log.Lshortfile|log.Lmsgprefix|log.LstdFlags),
 		wg:         sync.WaitGroup{},
 		sampleTime: sampleTime,
 	}
@@ -58,19 +56,22 @@ func NewPerfStatRunner(group *core.ProcessGroup, sampleTime time.Duration) PerfS
 type perfStatRunner struct {
 	group      *core.ProcessGroup
 	logger     *log.Logger
-	statOut    []byte
 	wg         sync.WaitGroup // 用于等待perf结束
 	sampleTime time.Duration
 }
 
-func (p *perfStatRunner) perfRunner(cmd *exec.Cmd) {
+func (p *perfStatRunner) perfRunner(pid int, cmd *exec.Cmd, position []*PerfStatResult) {
 	defer p.wg.Done()
+	buffer := bytes.NewBuffer(make([]byte, 0, 1024))
+	cmd.Stderr = buffer
+	p.logger.Printf("启动对进程%d的监控", pid)
 	err := cmd.Run()
 	if err != nil {
 		p.logger.Printf("Perf Stat进程 %d 退出错误：%v", cmd.Process.Pid, err)
 	} else {
 		p.logger.Printf("Perf Stat进程 %d 正常退出", cmd.Process.Pid)
 	}
+	position[0] = p.parseResult(buffer)
 }
 
 func (p *perfStatRunner) parseResult(out io.Reader) *PerfStatResult {
@@ -105,35 +106,38 @@ func (p *perfStatRunner) parseResult(out io.Reader) *PerfStatResult {
 			res.LLCStoreMisses = cnt
 		}
 	}
-	// 修正数据
 
 	return res
 }
 
-func (p *perfStatRunner) Start(ctx context.Context) <-chan *PerfStatResult {
-	pidString := make([]string, len(p.group.Pid))
-	for i, pid := range p.group.Pid {
-		pidString[i] = strconv.FormatInt(int64(pid), 10)
+func (p *perfStatRunner) Start(ctx context.Context) <-chan map[int]*PerfStatResult {
+	resultCh := make(chan map[int]*PerfStatResult, 1)
+	commands := make([]*exec.Cmd, len(p.group.Pid))
+	results := make([]*PerfStatResult, len(p.group.Pid))
+	for i := 0; i < len(p.group.Pid); i++ {
+		commands[i] = exec.Command("perf", "stat", "-e", perfStatEvents, "-ip", fmt.Sprintf("%d", p.group.Pid[i]), "-x", ",")
+		p.wg.Add(1)
+		go p.perfRunner(p.group.Pid[i], commands[i], results[i:i+1])
 	}
-	pidListString := strings.Join(pidString, ",")
-	statCmd := exec.Command("perf", "stat", "-e", perfStatEvents, "-ip", pidListString, "-x", ",")
-	buffer := bytes.NewBuffer(make([]byte, 0, 1024))
-	statCmd.Stderr = buffer
-	resultCh := make(chan *PerfStatResult, 1)
 
-	p.wg.Add(1)
-	go p.perfRunner(statCmd)
+	p.logger.Println("启动perf stat监控")
+	// 负责接收结果的主线成
 	go func() {
 		select {
 		case <-time.After(p.sampleTime):
 		case <-ctx.Done():
 		}
-		_ = syscall.Kill(statCmd.Process.Pid, syscall.SIGINT)
+		for _, command := range commands {
+			_ = syscall.Kill(command.Process.Pid, syscall.SIGINT)
+		}
 		p.wg.Wait()
-		result := p.parseResult(buffer)
-		result.Group = p.group
-		result.Error = nil
-		resultCh <- result
+		resultMap := make(map[int]*PerfStatResult)
+		for i, result := range results {
+			resultMap[p.group.Pid[i]] = result
+		}
+
+		p.logger.Println("进程组perf stat监控结束")
+		resultCh <- resultMap
 		close(resultCh)
 	}()
 	return resultCh

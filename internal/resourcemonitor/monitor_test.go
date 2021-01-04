@@ -44,7 +44,7 @@ func TestMemTrace(t *testing.T) {
 		},
 	})
 	result := <-ch
-	checkResult(t, result.result)
+	checkResult(t, result.Result)
 
 	_, _ = syscall.Wait4(pid, nil, 0, nil)
 }
@@ -84,7 +84,7 @@ func TestAddProcessExceedRMID(t *testing.T) {
 	for _, channel := range channels {
 		result := <-channel
 		assert.NoError(t, result.Error)
-		checkResult(t, result.result)
+		checkResult(t, result.Result)
 	}
 
 	for _, pid := range pidList {
