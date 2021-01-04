@@ -18,15 +18,12 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/pin"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"os"
 )
-
-var sampleMaxRTHTime int
-var sampleBufferSize int
-var sampleStopAt int
-var sampleWriteThreshold int
 
 // sampleCmd represents the sample command
 var sampleCmd = &cobra.Command{
@@ -37,14 +34,18 @@ var sampleCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(sampleCmd)
 
-	sampleCmd.PersistentFlags().IntVarP(&sampleMaxRTHTime, "max-time", "t", 100000,
+	sampleCmd.PersistentFlags().IntP("max-time", "t", core.RootConfig.MemTrace.MaxRthTime,
 		"最大RTH时间")
-	sampleCmd.PersistentFlags().IntVarP(&sampleBufferSize, "buffer-size", "b", pin.DefaultPinBufferSize,
+	_ = viper.BindPFlag("memtrace.maxrthtime", sampleCmd.PersistentFlags().Lookup("max-time"))
+	sampleCmd.PersistentFlags().IntP("buffer-size", "b", core.RootConfig.MemTrace.BufferSize,
 		"pin缓冲大小")
-	sampleCmd.PersistentFlags().IntVarP(&sampleWriteThreshold, "write-threshold", "w", pin.DefaultWriteThreshold,
+	_ = viper.BindPFlag("memtrace.buffersize", sampleCmd.PersistentFlags().Lookup("buffer-size"))
+	sampleCmd.PersistentFlags().IntP("write-threshold", "w", core.RootConfig.MemTrace.WriteThreshold,
 		"消费数据阈值")
-	sampleCmd.PersistentFlags().IntVarP(&sampleStopAt, "stop-at", "s", pin.DefaultStopAt,
+	_ = viper.BindPFlag("memtrace.writethreshold", sampleCmd.PersistentFlags().Lookup("write-threshold"))
+	sampleCmd.PersistentFlags().IntP("stop-at", "s", core.RootConfig.MemTrace.TraceCount,
 		"采集内存数据总数")
+	_ = viper.BindPFlag("memtrace.tracecount", sampleCmd.PersistentFlags().Lookup("stop-at"))
 }
 
 func sampleCommandExecute(recorder pin.MemRecorder) {
@@ -57,13 +58,12 @@ func sampleCommandExecute(recorder pin.MemRecorder) {
 	m := <-ch
 	fmt.Println("采样结束，正在输出结果")
 	for tid, calculator := range m {
-		calculator.GetRTH(sampleMaxRTHTime)
 		outFile, err := os.Create(fmt.Sprintf("sample_%d.csv", tid))
 		if err != nil {
 			fmt.Println("无法创建输出文件", err)
 			os.Exit(1)
 		}
-		calculator.WriteAsCsv(sampleMaxRTHTime, outFile)
+		calculator.WriteAsCsv(core.RootConfig.MemTrace.MaxRthTime, outFile)
 		_ = outFile.Close()
 	}
 }

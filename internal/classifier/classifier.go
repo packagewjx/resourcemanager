@@ -91,7 +91,7 @@ func (c *impl) Classify(ctx context.Context) <-chan *ClassifyResult {
 		defer close(resultCh)
 		processResults := make([]*ProcessResult, len(c.config.Group.Pid))
 		c.logger.Println("开始对进程组执行分类。正在执行Perf Stat追踪")
-		perfCh := perf.NewPerfStatRunner(c.config.Group, c.config.SampleTime).Start(ctx)
+		perfCh := perf.NewPerfStatRunner(c.config.Group).Start(ctx)
 		perfResult := <-perfCh
 		for i, pid := range c.config.Group.Pid {
 			processResults[i] = &ProcessResult{
@@ -132,11 +132,7 @@ func (i *impl) classifyProcess(ctx context.Context, pid int, position []*Process
 			Factory: func(tid int) algorithm.RTHCalculator {
 				return algorithm.ReservoirCalculator(i.config.ReservoirSize)
 			},
-			WriteThreshold: pin.DefaultWriteThreshold,
-			PinBufferSize:  pin.DefaultPinBufferSize,
-			PinStopAt:      pin.DefaultStopAt,
-			PinToolPath:    "/home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so",
-			GroupName:      i.config.Group.Id,
+			GroupName: i.config.Group.Id,
 		},
 		Pid: pid,
 	}).Start(ctx)

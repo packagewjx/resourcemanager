@@ -44,20 +44,18 @@ type PerfStatRunner interface {
 	Start(ctx context.Context) <-chan map[int]*PerfStatResult
 }
 
-func NewPerfStatRunner(group *core.ProcessGroup, sampleTime time.Duration) PerfStatRunner {
+func NewPerfStatRunner(group *core.ProcessGroup) PerfStatRunner {
 	return &perfStatRunner{
-		group:      group,
-		logger:     log.New(os.Stdout, fmt.Sprintf("perfstat-%s: ", group.Id), log.Lshortfile|log.Lmsgprefix|log.LstdFlags),
-		wg:         sync.WaitGroup{},
-		sampleTime: sampleTime,
+		group:  group,
+		logger: log.New(os.Stdout, fmt.Sprintf("perfstat-%s: ", group.Id), log.Lshortfile|log.Lmsgprefix|log.LstdFlags),
+		wg:     sync.WaitGroup{},
 	}
 }
 
 type perfStatRunner struct {
-	group      *core.ProcessGroup
-	logger     *log.Logger
-	wg         sync.WaitGroup // 用于等待perf结束
-	sampleTime time.Duration
+	group  *core.ProcessGroup
+	logger *log.Logger
+	wg     sync.WaitGroup // 用于等待perf结束
 }
 
 func (p *perfStatRunner) perfRunner(pid int, cmd *exec.Cmd, position []*PerfStatResult) {
@@ -124,7 +122,7 @@ func (p *perfStatRunner) Start(ctx context.Context) <-chan map[int]*PerfStatResu
 	// 负责接收结果的主线成
 	go func() {
 		select {
-		case <-time.After(p.sampleTime):
+		case <-time.After(core.RootConfig.PerfStat.SampleTime):
 		case <-ctx.Done():
 		}
 		for _, command := range commands {

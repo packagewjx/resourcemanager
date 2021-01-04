@@ -1,0 +1,14 @@
+MemTrace:
+  TraceCount: 100000000
+  MaxRTHTime: 100000
+  PinToolPath: /home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so
+  BufferSize: 10000
+  WriteThreshold: 20000
+  ReservoirSize: 100000
+perfstat:
+  SampleTime: 10s
+algorithm:
+  MPKIVeryHigh: 10
+  HPKIVeryHigh: 10
+  IPCLow: 0.5
+  NonCriticalCacheSize: 512

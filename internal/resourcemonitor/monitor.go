@@ -35,7 +35,7 @@ func New(ctx context.Context, config *Config) Monitor {
 }
 
 func (m *monitorImpl) PerfStat(rq *PerfStatRequest) <-chan map[int]*PerfStatResult {
-	perfRunner := perf.NewPerfStatRunner(rq.Group, rq.SampleTime)
+	perfRunner := perf.NewPerfStatRunner(rq.Group)
 	ch := perfRunner.Start(m.parentCtx)
 	resCh := make(chan map[int]*PerfStatResult, 1)
 
@@ -96,11 +96,7 @@ func (m *monitorImpl) startPin(ctx context.Context, rq *MemoryTraceRequest) (map
 				Factory: func(tid int) algorithm.RTHCalculator {
 					return algorithm.ReservoirCalculator(m.config.ReservoirSize)
 				},
-				WriteThreshold: m.config.WriteThreshold,
-				PinBufferSize:  m.config.PinBufferSize,
-				PinStopAt:      m.config.TotalMemTrace,
-				PinToolPath:    m.config.PinToolPath,
-				GroupName:      rq.Group.Id,
+				GroupName: rq.Group.Id,
 			},
 			Pid: pid,
 		})

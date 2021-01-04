@@ -39,11 +39,7 @@ var commandCmd = &cobra.Command{
 				Factory: func(tid int) algorithm.RTHCalculator {
 					return algorithm.ReservoirCalculator(100000)
 				},
-				WriteThreshold: sampleWriteThreshold,
-				PinBufferSize:  sampleBufferSize,
-				PinStopAt:      sampleStopAt,
-				PinToolPath:    "/home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so",
-				GroupName:      "sample",
+				GroupName: "sample",
 			},
 			Cmd:  args[0],
 			Args: args[1:],

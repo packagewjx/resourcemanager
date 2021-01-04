@@ -1,4 +1,4 @@
-package core
+package librm
 
 /*
 #cgo LDFLAGS: -L/usr/local/lib -Wl,-rpath=/usr/local/lib -lresource_manager  -lpqos
@@ -9,6 +9,7 @@ package core
 import "C"
 import (
 	"fmt"
+	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 	"unsafe"
 )
@@ -29,16 +30,16 @@ func LibFinalize() error {
 	return nil
 }
 
-var capInfo *CLOSCapabilityInfo = nil
+var capInfo *core.CLOSCapabilityInfo = nil
 
-func GetCapabilityInfo() (*CLOSCapabilityInfo, error) {
+func GetCapabilityInfo() (*core.CLOSCapabilityInfo, error) {
 	if capInfo == nil {
 		buf := &C.struct_rm_capability_info{}
 		res := C.rm_get_capability_info(buf)
 		if res != 0 {
 			return nil, fmt.Errorf("获取Capability错误，返回码为%d", res)
 		}
-		capInfo = &CLOSCapabilityInfo{
+		capInfo = &core.CLOSCapabilityInfo{
 			NumCatClos: uint(buf.numCatClos),
 			MaxLLCWays: uint(buf.maxLLCWays),
 			MinLLCWays: uint(buf.minLLCWays),
@@ -49,7 +50,7 @@ func GetCapabilityInfo() (*CLOSCapabilityInfo, error) {
 	return capInfo, nil
 }
 
-func SetControlScheme(schemes []*CLOSScheme) error {
+func SetControlScheme(schemes []*core.CLOSScheme) error {
 	cSchemes := make([]C.struct_rm_clos_scheme, len(schemes))
 	pointersToFree := make([]unsafe.Pointer, len(schemes))
 	for i, scheme := range schemes {

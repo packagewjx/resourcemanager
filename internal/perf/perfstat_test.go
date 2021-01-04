@@ -10,10 +10,11 @@ import (
 )
 
 func TestPerfStat(t *testing.T) {
+	core.RootConfig.PerfStat.SampleTime = time.Second // 加快测试速度
 	runner := NewPerfStatRunner(&core.ProcessGroup{
 		Id:  "test",
 		Pid: []int{os.Getpid()},
-	}, time.Second)
+	})
 
 	ch := runner.Start(context.Background())
 	resultMap := <-ch

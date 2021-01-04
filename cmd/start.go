@@ -16,21 +16,11 @@ limitations under the License.
 package cmd
 
 import (
-	"fmt"
-	"github.com/packagewjx/resourcemanager/internal/core"
+	"github.com/packagewjx/resourcemanager/internal/librm"
 	"github.com/packagewjx/resourcemanager/internal/resourcemanager/watcher"
 	"github.com/packagewjx/resourcemanager/internal/resourcemonitor"
 	"github.com/spf13/cobra"
-)
-
-var (
-	interval      int
-	tokenFile     string
-	caFile        string
-	insecure      bool
-	host          string
-	reservoirSize int
-	maxRthTime    int
+	"github.com/spf13/viper"
 )
 
 // startCmd represents the start command
@@ -38,39 +28,35 @@ var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "启动管控系统",
 	PreRunE: func(cmd *cobra.Command, args []string) error {
-		if tokenFile == "" {
-			return fmt.Errorf("请提供Token")
-		}
-		if !insecure && caFile == "" {
-			return fmt.Errorf("请提供CA，或者设置不安全的连接")
-		}
-		if interval < 1000 {
-			return fmt.Errorf("取样间隔不能低于1000毫秒")
-		}
-
-		return core.LibInit()
+		return librm.LibInit()
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return nil
 	},
 	PostRun: func(cmd *cobra.Command, args []string) {
-		_ = core.LibFinalize()
+		_ = librm.LibFinalize()
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(startCmd)
 
-	startCmd.Flags().StringVarP(&tokenFile, "token-file", "t", "",
+	startCmd.Flags().StringP("token-file", "t", "",
 		"用于访问集群的Service Account Token")
-	startCmd.Flags().StringVarP(&caFile, "ca-file", "c", "",
+	_ = viper.BindPFlag("kubernetes.tokenfile", startCmd.Flags().Lookup("token-file"))
+	startCmd.Flags().StringP("ca-file", "c", "",
 		"集群CA文件")
-	startCmd.Flags().BoolVarP(&insecure, "insecure", "n", false,
+	_ = viper.BindPFlag("kubernetes.cafile", startCmd.Flags().Lookup("ca-file"))
+	startCmd.Flags().BoolP("insecure", "n", false,
 		"支持TSL不安全连接")
-	startCmd.Flags().StringVarP(&host, "host", "h", watcher.DefaultHost,
+	_ = viper.BindPFlag("kubernetes.insecure", startCmd.Flags().Lookup("insecure"))
+	startCmd.Flags().StringP("host", "h", watcher.DefaultHost,
 		"Kubernetes API地址")
-	startCmd.Flags().IntVarP(&reservoirSize, "reservoir-size", "r", resourcemonitor.DefaultReservoirSize,
+	_ = viper.BindPFlag("kubernetes.host", startCmd.Flags().Lookup("host"))
+	startCmd.Flags().IntP("reservoir-size", "r", resourcemonitor.DefaultReservoirSize,
 		"内存使用追踪时Reservoir Sampling方法的Reservoir大小")
-	startCmd.Flags().IntVarP(&maxRthTime, "max-rth-time", "m", resourcemonitor.DefaultMaxRthTime,
+	_ = viper.BindPFlag("memtrace.reservoirsize", startCmd.Flags().Lookup("reservoir-size"))
+	startCmd.Flags().IntP("max-rth-time", "m", resourcemonitor.DefaultMaxRthTime,
 		"将内存使用记录转换为RTH时最大的Reuse Time大小")
+	_ = viper.BindPFlag("memtrace.maxrthtime", startCmd.Flags().Lookup("max-rth-time"))
 }

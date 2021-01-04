@@ -35,28 +35,29 @@ type ProcessGroup struct {
 	Pid []int
 }
 
-// FIXME 引入顶层公共Config
+// 顶层公共Config
 type Config struct {
-	MemTraceConfig
-	PerfStatConfig
-	AlgorithmConfig
+	MemTrace   MemTraceConfig
+	PerfStat   PerfStatConfig
+	Algorithm  AlgorithmConfig
+	Kubernetes KubernetesConfig
 }
 
 type MemTraceConfig struct {
 	TraceCount int
 	MaxRthTime int
-	PinConfig
+	PinConfig  `mapstructure:",squash"`
 }
 
 type PinConfig struct {
 	PinToolPath    string
 	BufferSize     int
 	WriteThreshold int
+	ReservoirSize  int
 }
 
 type PerfStatConfig struct {
-	ReservoirSize int
-	SampleTime    time.Duration
+	SampleTime time.Duration
 }
 
 type AlgorithmConfig struct {
@@ -64,4 +65,33 @@ type AlgorithmConfig struct {
 	HPKIVeryHigh         float32
 	IPCLow               float32
 	NonCriticalCacheSize int
+}
+
+type KubernetesConfig struct {
+	TokenFile string
+	CAFile    string
+	Insecure  bool
+	Host      string
+}
+
+var RootConfig = &Config{
+	MemTrace: MemTraceConfig{
+		TraceCount: 1000000000,
+		MaxRthTime: 100000,
+		PinConfig: PinConfig{
+			PinToolPath:    "",
+			BufferSize:     10000,
+			WriteThreshold: 20000,
+			ReservoirSize:  100000,
+		},
+	},
+	PerfStat: PerfStatConfig{
+		SampleTime: 10 * time.Second,
+	},
+	Algorithm: AlgorithmConfig{
+		MPKIVeryHigh:         10,
+		HPKIVeryHigh:         10,
+		IPCLow:               0.5,
+		NonCriticalCacheSize: 512,
+	},
 }

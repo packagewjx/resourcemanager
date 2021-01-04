@@ -1,6 +1,7 @@
-package core
+package librm
 
 import (
+	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"
@@ -26,11 +27,11 @@ func TestGetInfo(t *testing.T) {
 }
 
 func TestSetControlScheme(t *testing.T) {
-	schemes := make([]*CLOSScheme, 1)
+	schemes := make([]*core.CLOSScheme, 1)
 	pid := os.Getpid()
-	schemes[0] = &CLOSScheme{
+	schemes[0] = &core.CLOSScheme{
 		CLOSNum: 1,
-		ProcessGroups: []*ProcessGroup{{
+		ProcessGroups: []*core.ProcessGroup{{
 			Id:  "test",
 			Pid: []int{pid},
 		}},

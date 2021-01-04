@@ -30,7 +30,6 @@ var attachPid int
 var attachCmd = &cobra.Command{
 	Use:   "attach <pid>",
 	Short: "对运行中进程进行采样",
-
 	PreRunE: func(cmd *cobra.Command, args []string) error {
 		pid, err := strconv.ParseInt(args[0], 10, 32)
 		if err != nil {
@@ -45,11 +44,7 @@ var attachCmd = &cobra.Command{
 				Factory: func(tid int) algorithm.RTHCalculator {
 					return algorithm.ReservoirCalculator(100000)
 				},
-				WriteThreshold: sampleWriteThreshold,
-				PinBufferSize:  sampleBufferSize,
-				PinStopAt:      sampleStopAt,
-				PinToolPath:    "/home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so",
-				GroupName:      "sample",
+				GroupName: "sample",
 			},
 			Pid: attachPid,
 		})

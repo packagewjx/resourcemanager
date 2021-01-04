@@ -32,7 +32,6 @@ type groupCharacteristic struct {
 type impl struct {
 	watcher    watcher.ProcessGroupWatcher
 	classifier classifier.ProcessGroupClassifier
-	monitor    resourcemonitor.Monitor
 	gcMap      map[string]*groupCharacteristic
 	logger     *log.Logger
 	ctx        context.Context
@@ -43,11 +42,9 @@ var _ ResourceManager = &impl{}
 
 func New(config *Config) (ResourceManager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	m := resourcemonitor.New(ctx, &config.MonitorConfig)
 
 	return &impl{
 		watcher:    config.Watcher,
-		monitor:    m,
 		gcMap:      make(map[string]*groupCharacteristic),
 		logger:     log.New(os.Stdout, "ResourceManager", log.LstdFlags|log.Lshortfile|log.Lmsgprefix),
 		ctx:        ctx,

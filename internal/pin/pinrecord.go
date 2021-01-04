@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
+	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/pkg/errors"
 	"io"
 	"log"
@@ -24,14 +25,10 @@ type MemRecorder interface {
 type RTHCalculatorFactory func(tid int) algorithm.RTHCalculator
 
 type MemRecorderBaseConfig struct {
-	Kill           bool // 是否需要强制结束pin进程。一般用于command模式。
-	Factory        RTHCalculatorFactory
-	WriteThreshold int
-	PinBufferSize  int
-	PinStopAt      int
-	PinToolPath    string
-	RootDir        string // 预留，用于容器使用
-	GroupName      string // 用于日志显示组名
+	Kill      bool // 是否需要强制结束pin进程。一般用于command模式。
+	Factory   RTHCalculatorFactory
+	RootDir   string // 预留，用于容器使用
+	GroupName string // 用于日志显示组名
 }
 
 type MemRecorderRunConfig struct {
@@ -45,27 +42,22 @@ type MemRecorderAttachConfig struct {
 	Pid int
 }
 
-const (
-	DefaultWriteThreshold = 16000
-	DefaultPinBufferSize  = 8000
-	DefaultStopAt         = 5000000000
-)
-
 func NewMemAttachRecorder(config *MemRecorderAttachConfig) MemRecorder {
 	fifoPath := mkTempFifo()
-	pinToolPath, _ := filepath.Abs(config.PinToolPath)
+	pinToolPath, _ := filepath.Abs(core.RootConfig.MemTrace.PinToolPath)
 	cmd := exec.Command("pin", "-pid", fmt.Sprintf("%d", config.Pid), "-t",
-		pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize", fmt.Sprintf("%d", config.PinBufferSize),
-		"-stopat", fmt.Sprintf("%d", config.PinStopAt))
+		pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize", fmt.Sprintf("%d", core.RootConfig.MemTrace.BufferSize),
+		"-stopat", fmt.Sprintf("%d", core.RootConfig.MemTrace.TraceCount))
 
 	return newMemRecorder(&config.MemRecorderBaseConfig, fifoPath, cmd)
 }
 
 func NewMemRunRecorder(config *MemRecorderRunConfig) MemRecorder {
 	fifoPath := mkTempFifo()
-	pinToolPath, _ := filepath.Abs(config.PinToolPath)
+	pinToolPath, _ := filepath.Abs(core.RootConfig.MemTrace.PinToolPath)
 	pinArgs := []string{"-t", pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize",
-		fmt.Sprintf("%d", config.PinBufferSize), "-stopat", fmt.Sprintf("%d", config.PinStopAt), "--", config.Cmd}
+		fmt.Sprintf("%d", core.RootConfig.MemTrace.BufferSize), "-stopat",
+		fmt.Sprintf("%d", core.RootConfig.MemTrace.TraceCount), "--", config.Cmd}
 	pinArgs = append(pinArgs, config.Args...)
 	pinCmd := exec.Command("pin", pinArgs...)
 	return newMemRecorder(&config.MemRecorderBaseConfig, fifoPath, pinCmd)
@@ -73,24 +65,22 @@ func NewMemRunRecorder(config *MemRecorderRunConfig) MemRecorder {
 
 func newMemRecorder(config *MemRecorderBaseConfig, fifoPath string, pinCmd *exec.Cmd) MemRecorder {
 	return &pinRecorder{
-		kill:           config.Kill,
-		writeThreshold: config.WriteThreshold,
-		pinCmd:         pinCmd,
-		factory:        config.Factory,
-		fifoPath:       fifoPath,
-		readCnt:        0,
-		logger:         log.New(os.Stdout, fmt.Sprintf("pin-record-%s: ", config.GroupName), log.LstdFlags|log.Lmsgprefix|log.Lshortfile),
+		kill:     config.Kill,
+		pinCmd:   pinCmd,
+		factory:  config.Factory,
+		fifoPath: fifoPath,
+		readCnt:  0,
+		logger:   log.New(os.Stdout, fmt.Sprintf("pin-record-%s: ", config.GroupName), log.LstdFlags|log.Lmsgprefix|log.Lshortfile),
 	}
 }
 
 type pinRecorder struct {
-	kill           bool
-	writeThreshold int
-	pinCmd         *exec.Cmd
-	factory        RTHCalculatorFactory
-	fifoPath       string
-	readCnt        uint // 性能优化使用，监测读取速度
-	logger         *log.Logger
+	kill     bool
+	pinCmd   *exec.Cmd
+	factory  RTHCalculatorFactory
+	fifoPath string
+	readCnt  uint // 性能优化使用，监测读取速度
+	logger   *log.Logger
 }
 
 func (m *pinRecorder) pinTraceReader(ctx context.Context, resChan chan map[int]algorithm.RTHCalculator, cancelFunc context.CancelFunc) {
@@ -137,7 +127,7 @@ outerLoop:
 		data := binary.LittleEndian.Uint64(buf)
 		if data == 0 {
 			// 上一次结束
-			if len(addrList) > m.writeThreshold {
+			if len(addrList) > core.RootConfig.MemTrace.WriteThreshold {
 				// 因为读取过快而消费过慢，会等待一段时间，因此读取到list足够长的时候，然后实际消费
 				c, ok := cMap[currTid]
 				if !ok {

@@ -17,9 +17,13 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"os"
 )
+
+var configPath string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -31,8 +35,12 @@ var rootCmd = &cobra.Command{
 1. 需要运行在根名称空间，也就是不能运行在容器中。
 2. 需要使用root权限运行。
 3. 需要系统内核版本4.18及以上，linux启动参数加入'rdt=mba,cmt,l3cat,mbmlocal,mbmtotal'参数，启动后需挂载resctrl程序。
-4. 依赖librm ( https://github.com/packagewjx/librm )
-5. 需要有Kubernetes集群的pods, nodes, deployments, replicasets, statefulsets, daemonsets的list, get, watch权限`,
+`}
+
+func init() {
+	cobra.OnInitialize(readConfig)
+
+	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "配置文件路径")
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -41,5 +49,25 @@ func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
+	}
+}
+
+func readConfig() {
+	if configPath != "" {
+		viper.SetConfigFile(configPath)
+	} else {
+		viper.SetConfigName("config")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath(".")
+		viper.AddConfigPath("/etc/resourcemanager")
+	}
+
+	err := viper.ReadInConfig()
+	if err != nil {
+		fmt.Println("读取配置出错", err)
+	}
+	err = viper.UnmarshalExact(core.RootConfig)
+	if err != nil {
+		fmt.Println("读取配置出错", err)
 	}
 }
