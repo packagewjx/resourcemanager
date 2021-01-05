@@ -16,10 +16,11 @@ limitations under the License.
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
+	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
-
 	"github.com/spf13/cobra"
 )
 
@@ -34,17 +35,25 @@ var commandCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		recorder := pin.NewMemRunRecorder(&pin.MemRecorderRunConfig{
-			MemRecorderBaseConfig: pin.MemRecorderBaseConfig{
+		recorder := pin.NewMemRecorder(&pin.Config{
+			BufferSize:     core.RootConfig.MemTrace.BufferSize,
+			WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
+			PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
+			ConcurrentMax:  core.RootConfig.MemTrace.ConcurrentMax,
+			TraceCount:     core.RootConfig.MemTrace.TraceCount,
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		resCh := recorder.RecordCommand(ctx, &pin.MemRecordRunRequest{
+			MemRecordBaseRequest: pin.MemRecordBaseRequest{
 				Factory: func(tid int) algorithm.RTHCalculator {
-					return algorithm.ReservoirCalculator(100000)
+					return algorithm.ReservoirCalculator(core.RootConfig.MemTrace.ReservoirSize)
 				},
-				GroupName: "sample",
+				Name: "test",
 			},
 			Cmd:  args[0],
 			Args: args[1:],
 		})
-		sampleCommandExecute(recorder)
+		receiveResult(resCh, cancel)
 	},
 }
 

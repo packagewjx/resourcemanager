@@ -9,9 +9,7 @@ import (
 	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 	"log"
-	"math"
 	"os"
-	"runtime"
 	"sync"
 )
 
@@ -28,12 +26,10 @@ var (
 )
 
 var L3Size int
-var memtraceControlChannel chan struct{}
 
 func init() {
 	ways, sets, _ := utils.GetL3Cap()
 	L3Size = ways * sets
-	memtraceControlChannel = make(chan struct{}, math.Min(4, math.Max(1, float64(runtime.NumCPU())/4)))
 }
 
 const (
@@ -46,7 +42,12 @@ const (
 type FinishFunc func(group *core.ProcessGroup, characteristic MemoryCharacteristic, perfStat *perf.PerfStatResult, rth []int)
 type ErrorFunc func(group *core.ProcessGroup, err error)
 
-type ClassifyResult struct {
+type Config struct {
+	MemTraceConfig *pin.Config
+	ReservoirSize  int
+}
+
+type Result struct {
 	Group     *core.ProcessGroup
 	Error     error
 	Processes []*ProcessResult
@@ -60,41 +61,36 @@ type ProcessResult struct {
 	MemTraceResult map[int]algorithm.RTHCalculator
 }
 
-type ProcessGroupClassifier interface {
+type Classifier interface {
 	// 对一个进程组进行分类。对于
-	Classify(ctx context.Context) <-chan *ClassifyResult
+	Classify(ctx context.Context, group *core.ProcessGroup) <-chan *Result
 }
 
-type Config struct {
-	Group *core.ProcessGroup
-}
-
-func NewProcessGroupClassifier(config *Config) ProcessGroupClassifier {
+func New(config *Config) Classifier {
 	return &impl{
-		config: config,
-		logger: log.New(os.Stdout, fmt.Sprintf("Classifier-%s: ", config.Group.Id), log.Lmsgprefix|log.LstdFlags|log.Lshortfile),
-		wg:     sync.WaitGroup{},
+		logger:        log.New(os.Stdout, fmt.Sprintf("Classifier: "), log.Lmsgprefix|log.LstdFlags|log.Lshortfile),
+		memRecorder:   pin.NewMemRecorder(config.MemTraceConfig),
+		reservoirSize: config.ReservoirSize,
 	}
 }
 
 type impl struct {
-	config *Config
-	logger *log.Logger
-	wg     sync.WaitGroup
+	memRecorder   pin.MemRecorder
+	reservoirSize int
+	logger        *log.Logger
 }
 
-var _ ProcessGroupClassifier = &impl{}
+var _ Classifier = &impl{}
 
-func (c *impl) Classify(ctx context.Context) <-chan *ClassifyResult {
-	resultCh := make(chan *ClassifyResult, 1)
-	go func() {
+func (c *impl) Classify(ctx context.Context, group *core.ProcessGroup) <-chan *Result {
+	resultCh := make(chan *Result, 1)
+	go func(group *core.ProcessGroup) {
 		defer close(resultCh)
-		memtraceControlChannel <- struct{}{}
-		processResults := make([]*ProcessResult, len(c.config.Group.Pid))
-		c.logger.Println("开始对进程组执行分类。正在执行Perf Stat追踪")
-		perfCh := perf.NewPerfStatRunner(c.config.Group).Start(ctx)
+		processResults := make([]*ProcessResult, len(group.Pid))
+		c.logger.Printf("开始对进程组 %s 执行分类。正在执行Perf Stat追踪", group.Id)
+		perfCh := perf.NewPerfStatRunner(group).Start(ctx)
 		perfResult := <-perfCh
-		for i, pid := range c.config.Group.Pid {
+		for i, pid := range group.Pid {
 			processResults[i] = &ProcessResult{
 				Pid:            pid,
 				Error:          nil,
@@ -107,47 +103,48 @@ func (c *impl) Classify(ctx context.Context) <-chan *ClassifyResult {
 			}
 		}
 
-		c.logger.Println("开始对进程组执行内存追踪")
+		c.logger.Printf("开始对进程组 %s 执行内存追踪", group.Id)
+		wg := sync.WaitGroup{}
 		for i := 0; i < len(processResults); i++ {
 			if processResults[i].Characteristic == MemoryCharacteristicToDetermine {
-				c.wg.Add(1)
-				go c.classifyProcess(ctx, c.config.Group.Pid[i], processResults[i:i+1])
+				wg.Add(1)
+				go c.classifyProcess(ctx, group.Pid[i], processResults[i:i+1], &wg)
 			}
 		}
-		c.wg.Wait()
-		resultCh <- &ClassifyResult{
-			Group:     c.config.Group,
+		wg.Wait()
+		resultCh <- &Result{
+			Group:     group,
 			Error:     nil,
 			Processes: processResults,
 		}
 
-		c.logger.Println("进程组分类结束")
-		<-memtraceControlChannel
-	}()
+		c.logger.Printf("进程组 %s 分类结束", group.Id)
+	}(group)
 	return resultCh
 }
 
-func (i *impl) classifyProcess(ctx context.Context, pid int, position []*ProcessResult) {
-	defer i.wg.Done()
-	ch, err := pin.NewMemAttachRecorder(&pin.MemRecorderAttachConfig{
-		MemRecorderBaseConfig: pin.MemRecorderBaseConfig{
+func (i *impl) classifyProcess(ctx context.Context, pid int, position []*ProcessResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	ch := i.memRecorder.RecordProcess(ctx, &pin.MemRecordAttachRequest{
+		MemRecordBaseRequest: pin.MemRecordBaseRequest{
 			Factory: func(tid int) algorithm.RTHCalculator {
-				return algorithm.ReservoirCalculator(core.RootConfig.MemTrace.ReservoirSize)
+				return algorithm.ReservoirCalculator(i.reservoirSize)
 			},
-			GroupName: i.config.Group.Id,
+			Name: fmt.Sprintf("%d", pid),
 		},
 		Pid: pid,
-	}).Start(ctx)
-	if err != nil {
-		position[0].Error = err
+	})
+	result := <-ch
+	if result.Err != nil {
+		position[0].Error = result.Err
 		return
 	}
-	result := <-ch
-	rth := make([][]int, 0, len(result))
-	for _, calculator := range result {
+	rth := make([][]int, 0, len(result.ThreadTrace))
+	for _, calculator := range result.ThreadTrace {
 		rth = append(rth, calculator.GetRTH(core.RootConfig.MemTrace.MaxRthTime))
 	}
 	position[0].Characteristic = determineCharacteristic(rth)
+	position[0].MemTraceResult = result.ThreadTrace
 }
 
 func isBully(stat *perf.PerfStatResult) bool {
@@ -162,15 +159,18 @@ func isNonCritical(mrc []float32) bool {
 }
 
 func isSquanderer(rth []int, mrc []float32) bool {
-	panic("implement me")
+	// FIXME 实现
+	return false
 }
 
 func isMedium(rth []int, mrc []float32) bool {
-	panic("implement me")
+	// FIXME 实现
+	return false
 }
 
 func isHighlySensitive(rth []int, mrc []float32) bool {
-	panic("implement me")
+	// FIXME 实现
+	return true
 }
 
 func determineCharacteristic(rth [][]int) MemoryCharacteristic {
@@ -199,4 +199,4 @@ func determineCharacteristic(rth [][]int) MemoryCharacteristic {
 	}
 }
 
-var _ ProcessGroupClassifier = &impl{}
+var _ Classifier = &impl{}

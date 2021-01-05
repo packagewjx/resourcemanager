@@ -50,29 +50,20 @@ func init() {
 	_ = viper.BindPFlag("memtrace.tracecount", sampleCmd.PersistentFlags().Lookup("stop-at"))
 }
 
-func sampleCommandExecute(recorder pin.MemRecorder) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func receiveResult(resCh <-chan *pin.MemRecordResult, cancelFunc context.CancelFunc) {
 	sigCh := make(chan os.Signal)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		select {
-		case <-ctx.Done():
-			return
-		case <-sigCh:
-			cancel()
-		}
+		<-sigCh
+		cancelFunc()
 	}()
-
-	fmt.Println("开始采样")
-	ch, err := recorder.Start(ctx)
-	if err != nil {
-		fmt.Println(err)
+	m := <-resCh
+	if m.Err != nil {
+		fmt.Println(m.Err)
 		os.Exit(1)
 	}
-	m := <-ch
-	fmt.Println("采样结束，正在输出结果")
-	for tid, calculator := range m {
+	fmt.Println("正在输出结果")
+	for tid, calculator := range m.ThreadTrace {
 		outFile, err := os.Create(fmt.Sprintf("sample_%d.csv", tid))
 		if err != nil {
 			fmt.Println("无法创建输出文件", err)

@@ -56,6 +56,23 @@ func TestRTHCalculator(t *testing.T) {
 
 }
 
+func TestReservoirSize(t *testing.T) {
+	arr := make([]uint64, 5000)
+	for i := 0; i < len(arr)/2; i++ {
+		arr[i] = uint64(i)
+		arr[i+len(arr)/2] = uint64(i)
+	}
+	calculator := ReservoirCalculator(100)
+	calculator.Update(arr)
+	rth := calculator.GetRTH(10)
+	sum := 0
+	for i := 0; i < len(rth); i++ {
+		sum += rth[i]
+	}
+	assert.Equal(t, 100, sum)
+	assert.Equal(t, 100, len(calculator.(*reservoirCalculator).reservoir))
+}
+
 func TestPin(t *testing.T) {
 	f, _ := os.Open("../../pinatrace.out")
 	reader := bufio.NewReader(f)

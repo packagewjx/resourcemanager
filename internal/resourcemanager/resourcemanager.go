@@ -29,7 +29,7 @@ type groupCharacteristic struct {
 
 type impl struct {
 	watcher    watcher.ProcessGroupWatcher
-	classifier classifier.ProcessGroupClassifier
+	classifier classifier.Classifier
 	gcMap      map[string]*groupCharacteristic
 	logger     *log.Logger
 	ctx        context.Context

@@ -1,6 +1,10 @@
 package core
 
-import "time"
+import (
+	"math"
+	"runtime"
+	"time"
+)
 
 type ProgramMetric struct {
 	Id           string
@@ -44,9 +48,10 @@ type Config struct {
 }
 
 type MemTraceConfig struct {
-	TraceCount int
-	MaxRthTime int
-	PinConfig  `mapstructure:",squash"`
+	TraceCount    int
+	MaxRthTime    int
+	ConcurrentMax int
+	PinConfig     `mapstructure:",squash"`
 }
 
 type PinConfig struct {
@@ -76,10 +81,11 @@ type KubernetesConfig struct {
 
 var RootConfig = &Config{
 	MemTrace: MemTraceConfig{
-		TraceCount: 1000000000,
-		MaxRthTime: 100000,
+		TraceCount:    1000000000,
+		MaxRthTime:    100000,
+		ConcurrentMax: int(math.Min(math.Max(1, float64(runtime.NumCPU())/4), 4)),
 		PinConfig: PinConfig{
-			PinToolPath:    "",
+			PinToolPath:    "/home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so",
 			BufferSize:     10000,
 			WriteThreshold: 20000,
 			ReservoirSize:  100000,

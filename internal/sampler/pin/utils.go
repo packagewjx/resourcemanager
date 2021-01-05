@@ -8,7 +8,7 @@ import (
 	"syscall"
 )
 
-func mkTempFifo() string {
+func mkTempFifo() (string, error) {
 	var name string
 	for {
 		name = fmt.Sprintf("pin-%x.fifo", rand.Int())
@@ -18,8 +18,8 @@ func mkTempFifo() string {
 		}
 	}
 
-	_ = syscall.Mkfifo(name, 0600)
-	return name
+	err := syscall.Mkfifo(name, 0600)
+	return name, err
 }
 
 type logWriter struct {
