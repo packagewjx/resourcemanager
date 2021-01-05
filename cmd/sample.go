@@ -19,10 +19,12 @@ import (
 	"context"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/core"
-	"github.com/packagewjx/resourcemanager/internal/pin"
+	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 // sampleCmd represents the sample command
@@ -49,8 +51,21 @@ func init() {
 }
 
 func sampleCommandExecute(recorder pin.MemRecorder) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sigCh := make(chan os.Signal)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-sigCh:
+			cancel()
+		}
+	}()
+
 	fmt.Println("开始采样")
-	ch, err := recorder.Start(context.Background())
+	ch, err := recorder.Start(ctx)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

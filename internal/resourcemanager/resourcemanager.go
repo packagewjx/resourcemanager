@@ -4,9 +4,8 @@ import (
 	"context"
 	"github.com/packagewjx/resourcemanager/internal/classifier"
 	"github.com/packagewjx/resourcemanager/internal/core"
-	"github.com/packagewjx/resourcemanager/internal/perf"
 	"github.com/packagewjx/resourcemanager/internal/resourcemanager/watcher"
-	"github.com/packagewjx/resourcemanager/internal/resourcemonitor"
+	"github.com/packagewjx/resourcemanager/internal/sampler/perf"
 	"log"
 	"os"
 	"os/signal"
@@ -18,8 +17,7 @@ type ResourceManager interface {
 }
 
 type Config struct {
-	MonitorConfig resourcemonitor.Config
-	Watcher       watcher.ProcessGroupWatcher
+	Watcher watcher.ProcessGroupWatcher
 }
 
 type groupCharacteristic struct {

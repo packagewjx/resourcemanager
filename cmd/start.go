@@ -16,9 +16,9 @@ limitations under the License.
 package cmd
 
 import (
+	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/librm"
 	"github.com/packagewjx/resourcemanager/internal/resourcemanager/watcher"
-	"github.com/packagewjx/resourcemanager/internal/resourcemonitor"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -53,10 +53,10 @@ func init() {
 	startCmd.Flags().StringP("host", "h", watcher.DefaultHost,
 		"Kubernetes API地址")
 	_ = viper.BindPFlag("kubernetes.host", startCmd.Flags().Lookup("host"))
-	startCmd.Flags().IntP("reservoir-size", "r", resourcemonitor.DefaultReservoirSize,
+	startCmd.Flags().IntP("reservoir-size", "r", core.RootConfig.MemTrace.ReservoirSize,
 		"内存使用追踪时Reservoir Sampling方法的Reservoir大小")
 	_ = viper.BindPFlag("memtrace.reservoirsize", startCmd.Flags().Lookup("reservoir-size"))
-	startCmd.Flags().IntP("max-rth-time", "m", resourcemonitor.DefaultMaxRthTime,
+	startCmd.Flags().IntP("max-rth-time", "m", core.RootConfig.MemTrace.MaxRthTime,
 		"将内存使用记录转换为RTH时最大的Reuse Time大小")
 	_ = viper.BindPFlag("memtrace.maxrthtime", startCmd.Flags().Lookup("max-rth-time"))
 }

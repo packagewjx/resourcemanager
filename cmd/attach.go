@@ -17,7 +17,7 @@ package cmd
 
 import (
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
-	"github.com/packagewjx/resourcemanager/internal/pin"
+	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
 	"github.com/pkg/errors"
 	"strconv"
 

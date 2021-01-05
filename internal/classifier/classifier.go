@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
 	"github.com/packagewjx/resourcemanager/internal/core"
-	"github.com/packagewjx/resourcemanager/internal/perf"
-	"github.com/packagewjx/resourcemanager/internal/pin"
+	"github.com/packagewjx/resourcemanager/internal/sampler/perf"
+	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 	"log"
+	"math"
 	"os"
+	"runtime"
 	"sync"
-	"time"
 )
 
 type MemoryCharacteristic string
@@ -27,10 +28,12 @@ var (
 )
 
 var L3Size int
+var memtraceControlChannel chan struct{}
 
 func init() {
 	ways, sets, _ := utils.GetL3Cap()
 	L3Size = ways * sets
+	memtraceControlChannel = make(chan struct{}, math.Min(4, math.Max(1, float64(runtime.NumCPU())/4)))
 }
 
 const (
@@ -63,10 +66,7 @@ type ProcessGroupClassifier interface {
 }
 
 type Config struct {
-	Group         *core.ProcessGroup
-	ReservoirSize int
-	SampleTime    time.Duration
-	MaxRthTime    int
+	Group *core.ProcessGroup
 }
 
 func NewProcessGroupClassifier(config *Config) ProcessGroupClassifier {
@@ -89,6 +89,7 @@ func (c *impl) Classify(ctx context.Context) <-chan *ClassifyResult {
 	resultCh := make(chan *ClassifyResult, 1)
 	go func() {
 		defer close(resultCh)
+		memtraceControlChannel <- struct{}{}
 		processResults := make([]*ProcessResult, len(c.config.Group.Pid))
 		c.logger.Println("开始对进程组执行分类。正在执行Perf Stat追踪")
 		perfCh := perf.NewPerfStatRunner(c.config.Group).Start(ctx)
@@ -121,6 +122,7 @@ func (c *impl) Classify(ctx context.Context) <-chan *ClassifyResult {
 		}
 
 		c.logger.Println("进程组分类结束")
+		<-memtraceControlChannel
 	}()
 	return resultCh
 }
@@ -130,7 +132,7 @@ func (i *impl) classifyProcess(ctx context.Context, pid int, position []*Process
 	ch, err := pin.NewMemAttachRecorder(&pin.MemRecorderAttachConfig{
 		MemRecorderBaseConfig: pin.MemRecorderBaseConfig{
 			Factory: func(tid int) algorithm.RTHCalculator {
-				return algorithm.ReservoirCalculator(i.config.ReservoirSize)
+				return algorithm.ReservoirCalculator(core.RootConfig.MemTrace.ReservoirSize)
 			},
 			GroupName: i.config.Group.Id,
 		},
@@ -143,7 +145,7 @@ func (i *impl) classifyProcess(ctx context.Context, pid int, position []*Process
 	result := <-ch
 	rth := make([][]int, 0, len(result))
 	for _, calculator := range result {
-		rth = append(rth, calculator.GetRTH(i.config.MaxRthTime))
+		rth = append(rth, calculator.GetRTH(core.RootConfig.MemTrace.MaxRthTime))
 	}
 	position[0].Characteristic = determineCharacteristic(rth)
 }

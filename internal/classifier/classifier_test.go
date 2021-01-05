@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"syscall"
 	"testing"
-	"time"
 )
 
 func TestClassifier(t *testing.T) {
@@ -17,9 +16,6 @@ func TestClassifier(t *testing.T) {
 			Id:  "test",
 			Pid: []int{pid},
 		},
-		ReservoirSize: 100000,
-		SampleTime:    1 * time.Second,
-		MaxRthTime:    100000,
 	})
 	ch := classifier.Classify(context.Background())
 	result := <-ch
@@ -38,9 +34,6 @@ func TestClassifier(t *testing.T) {
 			Id:  "test",
 			Pid: []int{pid},
 		},
-		ReservoirSize: 100000,
-		SampleTime:    time.Second,
-		MaxRthTime:    100000,
 	})
 	ch = classifier.Classify(context.Background())
 	result = <-ch
