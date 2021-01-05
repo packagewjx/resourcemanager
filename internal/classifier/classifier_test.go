@@ -24,6 +24,7 @@ func TestClassifier(t *testing.T) {
 		},
 		ReservoirSize: core.RootConfig.MemTrace.ReservoirSize,
 	})
+	t.Log("正在执行第一个测试用例")
 	ch := classifier.Classify(context.Background(), &core.ProcessGroup{
 		Id:  "test",
 		Pid: []int{pid},
@@ -37,8 +38,10 @@ func TestClassifier(t *testing.T) {
 	assert.NotNil(t, result.Processes[0].MemTraceResult)
 	assert.Equal(t, pid, result.Processes[0].Pid)
 
+	t.Log("测试结束，等待进程结束")
 	_, _ = syscall.Wait4(pid, nil, 0, nil)
 
+	t.Log("正在运行第二个测试用例")
 	pid = utils.ForkRunExample(2)
 	ch = classifier.Classify(context.Background(), &core.ProcessGroup{
 		Id:  "test",
@@ -47,5 +50,6 @@ func TestClassifier(t *testing.T) {
 	result = <-ch
 	assert.Equal(t, MemoryCharacteristicBully, result.Processes[0].Characteristic)
 
+	t.Log("测试结束，等待进程结束")
 	_, _ = syscall.Wait4(pid, nil, 0, nil)
 }

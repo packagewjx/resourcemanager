@@ -40,7 +40,7 @@ algorithm:
 	assert.Equal(t, 10*time.Second, c.PerfStat.SampleTime)
 	assert.Equal(t, float32(6), c.Algorithm.MPKIVeryHigh)
 	assert.Equal(t, float32(7), c.Algorithm.HPKIVeryHigh)
-	assert.Equal(t, float32(8), c.Algorithm.IPCLow)
+	assert.Equal(t, float32(8), c.Algorithm.IPCVeryLow)
 	assert.Equal(t, 9, c.Algorithm.NonCriticalCacheSize)
 
 }

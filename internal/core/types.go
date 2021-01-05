@@ -66,10 +66,13 @@ type PerfStatConfig struct {
 }
 
 type AlgorithmConfig struct {
-	MPKIVeryHigh         float32
-	HPKIVeryHigh         float32
-	IPCLow               float32
+	MPKIVeryHigh         float64
+	HPKIVeryHigh         float64
+	HPKIVeryLow          float64
+	IPCVeryLow           float64
+	IPCLow               float64
 	NonCriticalCacheSize int
+	MediumCacheSize      int
 }
 
 type KubernetesConfig struct {
@@ -97,7 +100,10 @@ var RootConfig = &Config{
 	Algorithm: AlgorithmConfig{
 		MPKIVeryHigh:         10,
 		HPKIVeryHigh:         10,
-		IPCLow:               0.5,
-		NonCriticalCacheSize: 512,
+		HPKIVeryLow:          0.5,
+		IPCVeryLow:           0.6,
+		IPCLow:               1.3,
+		NonCriticalCacheSize: 512,   // L1的大小
+		MediumCacheSize:      16384, // L3两个Set的大小
 	},
 }

@@ -22,7 +22,6 @@ var (
 	MemoryCharacteristicBully       MemoryCharacteristic = "bully"
 	MemoryCharacteristicMedium      MemoryCharacteristic = "medium"
 	MemoryCharacteristicSensitive   MemoryCharacteristic = "sensitive"
-	MemoryCharacteristicUnknown     MemoryCharacteristic = "unknown"
 )
 
 var L3Size int
@@ -31,13 +30,6 @@ func init() {
 	ways, sets, _ := utils.GetL3Cap()
 	L3Size = ways * sets
 }
-
-const (
-	thresholdMPKIVeryHigh         = 10
-	thresholdHPKIVeryHigh         = 10
-	thresholdIPCLow               = 0.6
-	thresholdNonCriticalCacheSize = 512 // 若在这个范围内，MR降到了5%以下，可以认为是内存非敏感型应用。取值为典型L1大小
-)
 
 type FinishFunc func(group *core.ProcessGroup, characteristic MemoryCharacteristic, perfStat *perf.PerfStatResult, rth []int)
 type ErrorFunc func(group *core.ProcessGroup, err error)
@@ -139,63 +131,76 @@ func (i *impl) classifyProcess(ctx context.Context, pid int, position []*Process
 		position[0].Error = result.Err
 		return
 	}
-	rth := make([][]int, 0, len(result.ThreadTrace))
-	for _, calculator := range result.ThreadTrace {
-		rth = append(rth, calculator.GetRTH(core.RootConfig.MemTrace.MaxRthTime))
-	}
-	position[0].Characteristic = determineCharacteristic(rth)
 	position[0].MemTraceResult = result.ThreadTrace
+	position[0].Characteristic = determineCharacteristic(position[0])
 }
 
 func isBully(stat *perf.PerfStatResult) bool {
 	mpki := float64(stat.LLCStoreMisses+stat.LLCLoadMisses) / float64(stat.Instructions) * 1000.0
 	hpki := float64(stat.AllStores+stat.AllLoads-stat.LLCLoadMisses-stat.LLCStoreMisses) / float64(stat.Instructions) * 1000.0
 	ipc := float64(stat.Instructions) / float64(stat.Cycles)
-	return mpki > thresholdMPKIVeryHigh && hpki > thresholdHPKIVeryHigh && ipc < thresholdIPCLow
+	return mpki >= core.RootConfig.Algorithm.MPKIVeryHigh && hpki >= core.RootConfig.Algorithm.HPKIVeryHigh &&
+		ipc <= core.RootConfig.Algorithm.IPCVeryLow
 }
 
 func isNonCritical(mrc []float32) bool {
-	return mrc[thresholdNonCriticalCacheSize] < 0.05
+	return mrc[core.RootConfig.Algorithm.NonCriticalCacheSize] < 0.05
 }
 
-func isSquanderer(rth []int, mrc []float32) bool {
-	// FIXME 实现
+func isSquanderer(mrc []float32, stat *perf.PerfStatResult) bool {
+	ipc := float64(stat.Instructions) / float64(stat.Cycles)
+	if ipc <= core.RootConfig.Algorithm.IPCLow {
+		// MRC必然是单调递减的。因此分成多个区间，每个区间查看其斜率，找到斜率低于阈值的位置。阈值通常是取值为加大缓存空间收益小的位置。
+		const intervalCount = 1000
+		const slopeThreshold = 1.0 / intervalCount
+		targetPosition := -1
+		stepSize := len(mrc) / intervalCount
+		idx := 0
+		// i到intervalCount-1是没有必要再检查最后一个区间了，不仅要加入判断逻辑，还没有多大意义
+		for i := 0; i < intervalCount-1; i++ {
+			slope := float64(mrc[idx]-mrc[idx+stepSize]) / float64(stepSize)
+			if slope < slopeThreshold {
+				targetPosition = idx
+				break
+			}
+			idx += stepSize
+		}
+		if targetPosition == -1 {
+			// 这个情况应该保证很少发生
+			return false
+		}
+		// 若MissRate基本不变化时依旧很高，就认为是Squanderer
+		return mrc[targetPosition] > 0.3
+	}
 	return false
 }
 
-func isMedium(rth []int, mrc []float32) bool {
-	// FIXME 实现
-	return false
+func isMedium(mrc []float32) bool {
+	return mrc[core.RootConfig.Algorithm.MediumCacheSize] < 0.05
 }
 
-func isHighlySensitive(rth []int, mrc []float32) bool {
-	// FIXME 实现
-	return true
-}
-
-func determineCharacteristic(rth [][]int) MemoryCharacteristic {
-	averageRth := make([]int, len(rth[0]))
-	for i := 0; i < len(averageRth); i++ {
-		for j := 0; j < len(rth); j++ {
-			averageRth[i] += rth[j][i]
+func determineCharacteristic(p *ProcessResult) MemoryCharacteristic {
+	// 使用平均RTH判断
+	averageRth := make([]int, core.RootConfig.MemTrace.MaxRthTime+2)
+	for _, calculator := range p.MemTraceResult {
+		rth := calculator.GetRTH(core.RootConfig.MemTrace.MaxRthTime)
+		for i := 0; i < len(averageRth); i++ {
+			averageRth[i] += rth[i]
 		}
 	}
 	for i := 0; i < len(averageRth); i++ {
-		averageRth[i] /= len(rth)
+		averageRth[i] /= len(p.MemTraceResult)
 	}
-	// 使用这个RTH计算MRC
 	model := algorithm.NewAETModel(averageRth)
-	mrc := model.MRC(L3Size)
+	mrc := model.MRC(L3Size * 2)
 	if isNonCritical(mrc) {
 		return MemoryCharacteristicNonCritical
-	} else if isSquanderer(averageRth, mrc) {
+	} else if isSquanderer(mrc, p.StatResult) {
 		return MemoryCharacteristicSquanderer
-	} else if isMedium(averageRth, mrc) {
+	} else if isMedium(mrc) {
 		return MemoryCharacteristicMedium
-	} else if isHighlySensitive(averageRth, mrc) {
-		return MemoryCharacteristicSensitive
 	} else {
-		return MemoryCharacteristicUnknown
+		return MemoryCharacteristicSensitive
 	}
 }
 
