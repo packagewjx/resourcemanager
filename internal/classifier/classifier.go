@@ -51,6 +51,7 @@ type ProcessResult struct {
 	Characteristic MemoryCharacteristic
 	StatResult     *perf.PerfStatResult
 	MemTraceResult map[int]algorithm.RTHCalculator
+	AverageMRC     []float32
 }
 
 type Classifier interface {
@@ -136,9 +137,9 @@ func (i *impl) classifyProcess(ctx context.Context, pid int, position []*Process
 }
 
 func isBully(stat *perf.PerfStatResult) bool {
-	mpki := float64(stat.LLCStoreMisses+stat.LLCLoadMisses) / float64(stat.Instructions) * 1000.0
-	hpki := float64(stat.AllStores+stat.AllLoads-stat.LLCLoadMisses-stat.LLCStoreMisses) / float64(stat.Instructions) * 1000.0
-	ipc := float64(stat.Instructions) / float64(stat.Cycles)
+	mpki := stat.MissPerKiloInstructions()
+	hpki := stat.HitPerKiloInstructions()
+	ipc := stat.InstructionPerCycle()
 	return mpki >= core.RootConfig.Algorithm.MPKIVeryHigh && hpki >= core.RootConfig.Algorithm.HPKIVeryHigh &&
 		ipc <= core.RootConfig.Algorithm.IPCVeryLow
 }
@@ -149,7 +150,7 @@ func isNonCritical(mrc []float32) bool {
 
 func isSquanderer(mrc []float32, stat *perf.PerfStatResult) bool {
 	ipc := float64(stat.Instructions) / float64(stat.Cycles)
-	if ipc <= core.RootConfig.Algorithm.IPCLow {
+	if ipc <= core.RootConfig.Algorithm.IPCLow || stat.LLCMissRate() > core.RootConfig.Algorithm.LLCMissRateHigh {
 		// MRC必然是单调递减的。因此分成多个区间，每个区间查看其斜率，找到斜率低于阈值的位置。阈值通常是取值为加大缓存空间收益小的位置。
 		const intervalCount = 1000
 		const slopeThreshold = 1.0 / intervalCount
@@ -170,7 +171,7 @@ func isSquanderer(mrc []float32, stat *perf.PerfStatResult) bool {
 			return false
 		}
 		// 若MissRate基本不变化时依旧很高，就认为是Squanderer
-		return mrc[targetPosition] > 0.3
+		return float64(mrc[targetPosition]) > core.RootConfig.Algorithm.MRCLowest
 	}
 	return false
 }
@@ -181,18 +182,8 @@ func isMedium(mrc []float32) bool {
 
 func determineCharacteristic(p *ProcessResult) MemoryCharacteristic {
 	// 使用平均RTH判断
-	averageRth := make([]int, core.RootConfig.MemTrace.MaxRthTime+2)
-	for _, calculator := range p.MemTraceResult {
-		rth := calculator.GetRTH(core.RootConfig.MemTrace.MaxRthTime)
-		for i := 0; i < len(averageRth); i++ {
-			averageRth[i] += rth[i]
-		}
-	}
-	for i := 0; i < len(averageRth); i++ {
-		averageRth[i] /= len(p.MemTraceResult)
-	}
-	model := algorithm.NewAETModel(averageRth)
-	mrc := model.MRC(L3Size * 2)
+	mrc := AverageMRC(p.MemTraceResult, core.RootConfig.MemTrace.MaxRthTime, L3Size*2)
+	p.AverageMRC = mrc
 	if isNonCritical(mrc) {
 		return MemoryCharacteristicNonCritical
 	} else if isSquanderer(mrc, p.StatResult) {
@@ -205,3 +196,18 @@ func determineCharacteristic(p *ProcessResult) MemoryCharacteristic {
 }
 
 var _ Classifier = &impl{}
+
+func AverageMRC(m map[int]algorithm.RTHCalculator, maxRTH, size int) []float32 {
+	averageRth := make([]int, maxRTH+2)
+	for _, calculator := range m {
+		rth := calculator.GetRTH(maxRTH)
+		for i := 0; i < len(averageRth); i++ {
+			averageRth[i] += rth[i]
+		}
+	}
+	for i := 0; i < len(averageRth); i++ {
+		averageRth[i] /= len(m)
+	}
+	model := algorithm.NewAETModel(averageRth)
+	return model.MRC(size)
+}

@@ -9,10 +9,23 @@ package librm
 import "C"
 import (
 	"fmt"
-	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 	"unsafe"
 )
+
+type CLOSScheme struct {
+	CLOSNum     int
+	WayBit      int
+	MemThrottle int
+	Processes   []int
+}
+
+type CLOSCapabilityInfo struct {
+	NumCatClos uint
+	NumMbaClos uint
+	MaxLLCWays uint
+	MinLLCWays uint
+}
 
 func LibInit() error {
 	res := C.rm_init()
@@ -30,16 +43,16 @@ func LibFinalize() error {
 	return nil
 }
 
-var capInfo *core.CLOSCapabilityInfo = nil
+var capInfo *CLOSCapabilityInfo = nil
 
-func GetCapabilityInfo() (*core.CLOSCapabilityInfo, error) {
+func GetCapabilityInfo() (*CLOSCapabilityInfo, error) {
 	if capInfo == nil {
 		buf := &C.struct_rm_capability_info{}
 		res := C.rm_get_capability_info(buf)
 		if res != 0 {
 			return nil, fmt.Errorf("获取Capability错误，返回码为%d", res)
 		}
-		capInfo = &core.CLOSCapabilityInfo{
+		capInfo = &CLOSCapabilityInfo{
 			NumCatClos: uint(buf.numCatClos),
 			MaxLLCWays: uint(buf.maxLLCWays),
 			MinLLCWays: uint(buf.minLLCWays),
@@ -50,19 +63,15 @@ func GetCapabilityInfo() (*core.CLOSCapabilityInfo, error) {
 	return capInfo, nil
 }
 
-func SetControlScheme(schemes []*core.CLOSScheme) error {
+func SetControlScheme(schemes []*CLOSScheme) error {
 	cSchemes := make([]C.struct_rm_clos_scheme, len(schemes))
 	pointersToFree := make([]unsafe.Pointer, len(schemes))
 	for i, scheme := range schemes {
-		var pidList []int
-		for _, group := range scheme.ProcessGroups {
-			pidList = append(pidList, group.Pid...)
-		}
-		list := utils.MallocCPidList(pidList)
+		list := utils.MallocCPidList(scheme.Processes)
 		cSchemes[i] = C.struct_rm_clos_scheme{
 			closNum:        C.int(scheme.CLOSNum),
 			processList:    (*C.pid_t)(list),
-			lenProcessList: C.uint(len(pidList)),
+			lenProcessList: C.uint(len(scheme.Processes)),
 			llc:            C.uint(scheme.WayBit),
 			mbaThrottle:    C.uint(scheme.MemThrottle),
 		}

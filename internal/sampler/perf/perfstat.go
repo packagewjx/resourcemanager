@@ -18,26 +18,77 @@ import (
 )
 
 const (
-	perfInstructions = "instructions:u"
-	perfCycles       = "cycles:u"
-	perfAllLoads     = "L1-dcache-loads:u"
-	perfAllStores    = "L1-dcache-stores:u"
-	perfLoadMisses   = "LLC-load-misses:u"
-	perfStoreMisses  = "LLC-store-misses:u"
-	perfStatEvents   = perfAllLoads + "," + perfAllStores + "," + perfLoadMisses + "," + perfStoreMisses + "," + perfInstructions + "," + perfCycles
+	pAllLoads     = "mem_inst_retired.all_loads"
+	pAllStores    = "mem_inst_retired.all_stores"
+	pL3Miss       = "longest_lat_cache.miss"
+	pL3LoadMisses = "LLC-load-misses"
+	pCycles       = "cpu_clk_unhalted.thread"
+	pInstructions = "inst_retired.any"
+	pL3MissCycles = "cycle_activity.cycles_l3_miss"
+	pMemAnyCycles = "cycle_activity.cycles_mem_any"
 )
 
-type StatFinishFunc func(group *core.ProcessGroup, record *PerfStatResult)
+var perfStatEvents = fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s", pAllLoads, pAllStores, pL3Miss, pL3LoadMisses,
+	pCycles, pInstructions, pL3MissCycles, pMemAnyCycles)
 
 type PerfStatResult struct {
-	Pid            int
-	Error          error
-	AllLoads       uint64
-	AllStores      uint64
-	LLCLoadMisses  uint64
-	LLCStoreMisses uint64
-	Instructions   uint64
-	Cycles         uint64
+	Pid           int
+	Error         error
+	AllLoads      uint64 // mem_inst_retired.all_loads
+	AllStores     uint64 // mem_inst_retired.all_stores
+	Instructions  uint64 // inst_retired.any
+	Cycles        uint64 // cpu_clk_unhalted.thread
+	LLCReferences uint64 // longest_lat_cache.reference
+	LLCMisses     uint64 // longest_lat_cache.miss
+	MemAnyCycles  uint64 // cycle_activity.cycles_mem_any
+	LLCMissCycles uint64 // cycle_activity.cycles_l3_miss
+	LLCLoadMisses uint64 // LLC-load-misses
+}
+
+func (p *PerfStatResult) Clone() core.Cloneable {
+	return &PerfStatResult{
+		Pid:           p.Pid,
+		Error:         p.Error,
+		AllLoads:      p.AllLoads,
+		AllStores:     p.AllStores,
+		Instructions:  p.Instructions,
+		Cycles:        p.Cycles,
+		LLCReferences: p.LLCReferences,
+		LLCMisses:     p.LLCMisses,
+		MemAnyCycles:  p.MemAnyCycles,
+		LLCMissCycles: p.LLCMissCycles,
+		LLCLoadMisses: p.LLCLoadMisses,
+	}
+}
+
+func (p *PerfStatResult) LLCMissRate() float64 {
+	return float64(p.LLCMisses) / float64(p.LLCReferences)
+}
+
+func (p *PerfStatResult) AccessPerInstruction() float64 {
+	return float64(p.AllLoads+p.AllStores) / float64(p.Instructions)
+}
+
+func (p *PerfStatResult) AverageCacheHitLatency() float64 {
+	cycles := float64(p.MemAnyCycles - p.LLCMissCycles)
+	hitCount := float64(p.AllLoads - p.LLCMisses)
+	return cycles / hitCount
+}
+
+func (p *PerfStatResult) AverageCacheMissLatency() float64 {
+	return float64(p.LLCMissCycles) / float64(p.LLCLoadMisses)
+}
+
+func (p *PerfStatResult) InstructionPerCycle() float64 {
+	return float64(p.Instructions) / float64(p.Cycles)
+}
+
+func (p *PerfStatResult) MissPerKiloInstructions() float64 {
+	return float64(p.LLCMisses) / float64(p.Instructions) * 1000
+}
+
+func (p *PerfStatResult) HitPerKiloInstructions() float64 {
+	return float64(p.AllStores+p.AllLoads-p.LLCMisses) / float64(p.Instructions) * 1000
 }
 
 type PerfStatRunner interface {
@@ -90,18 +141,22 @@ func (p *perfStatRunner) parseResult(out io.Reader) *PerfStatResult {
 		switch record[2] {
 		default:
 			p.logger.Printf("出现了未知事件，异常行：%v", record)
-		case perfInstructions:
-			res.Instructions = cnt
-		case perfCycles:
-			res.Cycles = cnt
-		case "L1-dcache-loads":
+		case pAllLoads:
 			res.AllLoads = cnt
-		case "L1-dcache-stores":
+		case pAllStores:
 			res.AllStores = cnt
-		case "LLC-load-misses":
+		case pL3Miss:
+			res.LLCMisses = cnt
+		case pL3LoadMisses:
 			res.LLCLoadMisses = cnt
-		case "LLC-store-misses":
-			res.LLCStoreMisses = cnt
+		case pCycles:
+			res.Cycles = cnt
+		case pInstructions:
+			res.Instructions = cnt
+		case pL3MissCycles:
+			res.LLCMissCycles = cnt
+		case pMemAnyCycles:
+			res.MemAnyCycles = cnt
 		}
 	}
 

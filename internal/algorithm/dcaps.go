@@ -1,7 +1,7 @@
 package algorithm
 
 import (
-	"github.com/packagewjx/resourcemanager/internal/core"
+	"github.com/packagewjx/resourcemanager/internal/librm"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 )
 
@@ -11,16 +11,30 @@ const MinStep float32 = 100
 const StepReductionRatio float32 = 0.95
 
 type PredictMetric struct {
-	Id        string
+	Pid       int
 	MissRate  float32
 	IPC       float32
 	Occupancy int // L3缓存占用，单位为缓存行
 }
 
+type ProgramMetric struct {
+	Pid          int
+	MRC          []float32
+	Instructions int
+	L1Hit        int
+	L2Hit        int
+	L3Hit        int
+	L3Miss       int
+}
+
+func (p ProgramMetric) Api() float32 {
+	return float32(p.L1Hit+p.L2Hit+p.L3Hit+p.L3Miss) / float32(p.Instructions)
+}
+
 type predictContext struct {
-	core.ProgramMetric
+	ProgramMetric
 	PredictMetric
-	scheme    *core.CLOSScheme
+	scheme    *librm.CLOSScheme
 	apc       float32
 	miss      int
 	pEviction float32
@@ -38,9 +52,9 @@ func estimateIPC(pred *predictContext) float32 {
 	return 1 / cpi
 }
 
-func Predict(programs []*core.ProgramMetric, schemes []*core.CLOSScheme) []*PredictMetric {
+func Predict(programs []*ProgramMetric, schemes []*librm.CLOSScheme) []*PredictMetric {
 	programContext := make([]*predictContext, len(programs))
-	idxMap := make(map[string]int)
+	idxMap := make(map[int]int)
 	for i, metric := range programs {
 		programContext[i] = &predictContext{
 			ProgramMetric: *metric,
@@ -50,11 +64,11 @@ func Predict(programs []*core.ProgramMetric, schemes []*core.CLOSScheme) []*Pred
 			miss:          0,
 			pEviction:     0,
 		}
-		idxMap[metric.Id] = i
+		idxMap[metric.Pid] = i
 	}
 	for _, scheme := range schemes {
-		for _, group := range scheme.ProcessGroups {
-			programContext[idxMap[group.Id]].scheme = scheme
+		for _, pid := range scheme.Processes {
+			programContext[idxMap[pid]].scheme = scheme
 		}
 	}
 
