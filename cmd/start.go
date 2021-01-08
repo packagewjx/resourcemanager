@@ -17,7 +17,6 @@ package cmd
 
 import (
 	"github.com/packagewjx/resourcemanager/internal/core"
-	"github.com/packagewjx/resourcemanager/internal/librm"
 	"github.com/packagewjx/resourcemanager/internal/resourcemanager/watcher"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -28,13 +27,13 @@ var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "启动管控系统",
 	PreRunE: func(cmd *cobra.Command, args []string) error {
-		return librm.LibInit()
+		panic("implement me")
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return nil
+		panic("implement me")
 	},
 	PostRun: func(cmd *cobra.Command, args []string) {
-		_ = librm.LibFinalize()
+		panic("implement me")
 	},
 }
 

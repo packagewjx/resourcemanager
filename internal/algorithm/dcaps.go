@@ -1,7 +1,7 @@
 package algorithm
 
 import (
-	"github.com/packagewjx/resourcemanager/internal/librm"
+	"github.com/packagewjx/resourcemanager/internal/pqos"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 )
 
@@ -34,7 +34,7 @@ func (p ProgramMetric) Api() float32 {
 type predictContext struct {
 	ProgramMetric
 	PredictMetric
-	scheme    *librm.CLOSScheme
+	scheme    *pqos.CLOSScheme
 	apc       float32
 	miss      int
 	pEviction float32
@@ -52,7 +52,7 @@ func estimateIPC(pred *predictContext) float32 {
 	return 1 / cpi
 }
 
-func Predict(programs []*ProgramMetric, schemes []*librm.CLOSScheme) []*PredictMetric {
+func Predict(programs []*ProgramMetric, schemes []*pqos.CLOSScheme) []*PredictMetric {
 	programContext := make([]*predictContext, len(programs))
 	idxMap := make(map[int]int)
 	for i, metric := range programs {
