@@ -216,7 +216,7 @@ func (i *impl) classifyRoutine(ctx context.Context, groupContext *processGroupCo
 				pid:            processResult.Pid,
 				characteristic: processResult.Characteristic,
 				perfStat:       processResult.StatResult,
-				mrc:            processResult.AverageMRC,
+				mrc:            processResult.WeightedAverageMRC,
 			}
 		}
 

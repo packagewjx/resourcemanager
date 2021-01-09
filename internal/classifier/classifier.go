@@ -46,12 +46,12 @@ type Result struct {
 }
 
 type ProcessResult struct {
-	Pid            int
-	Error          error
-	Characteristic MemoryCharacteristic
-	StatResult     *perf.PerfStatResult
-	MemTraceResult map[int]algorithm.RTHCalculator
-	AverageMRC     []float32
+	Pid                int
+	Error              error
+	Characteristic     MemoryCharacteristic
+	StatResult         *perf.PerfStatResult
+	MemTraceResult     *pin.MemRecordResult
+	WeightedAverageMRC []float32 // 加权平均MRC，权值为指令数量占比
 }
 
 type Classifier interface {
@@ -132,7 +132,7 @@ func (i *impl) classifyProcess(ctx context.Context, pid int, position []*Process
 		position[0].Error = result.Err
 		return
 	}
-	position[0].MemTraceResult = result.ThreadTrace
+	position[0].MemTraceResult = result
 	position[0].Characteristic = determineCharacteristic(position[0])
 }
 
@@ -183,8 +183,8 @@ func isMedium(mrc []float32) bool {
 
 func determineCharacteristic(p *ProcessResult) MemoryCharacteristic {
 	// 使用平均RTH判断
-	mrc := AverageMRC(p.MemTraceResult, core.RootConfig.MemTrace.MaxRthTime, L3Size*2)
-	p.AverageMRC = mrc
+	mrc := WeightedAverageMRC(p.MemTraceResult, core.RootConfig.MemTrace.MaxRthTime, L3Size*2)
+	p.WeightedAverageMRC = mrc
 	if isNonCritical(mrc) {
 		return MemoryCharacteristicNonCritical
 	} else if isSquanderer(mrc, p.StatResult) {
@@ -198,17 +198,16 @@ func determineCharacteristic(p *ProcessResult) MemoryCharacteristic {
 
 var _ Classifier = &impl{}
 
-func AverageMRC(m map[int]algorithm.RTHCalculator, maxRTH, size int) []float32 {
+// 给所有线程计算的加权平均MRC
+func WeightedAverageMRC(m *pin.MemRecordResult, maxRTH, cacheSize int) []float32 {
 	averageRth := make([]int, maxRTH+2)
-	for _, calculator := range m {
+	for tid, calculator := range m.ThreadTrace {
 		rth := calculator.GetRTH(maxRTH)
+		weight := float32(m.ThreadInstructionCount[tid]) / float32(m.TotalInstructions)
 		for i := 0; i < len(averageRth); i++ {
-			averageRth[i] += rth[i]
+			averageRth[i] += int(float32(rth[i]) * weight)
 		}
 	}
-	for i := 0; i < len(averageRth); i++ {
-		averageRth[i] /= len(m)
-	}
 	model := algorithm.NewAETModel(averageRth)
-	return model.MRC(size)
+	return model.MRC(cacheSize)
 }

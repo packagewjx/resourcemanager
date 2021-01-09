@@ -45,6 +45,10 @@ func TestRecord(t *testing.T) {
 			}
 			assert.NotZero(t, sum)
 		}
+		assert.NotZero(t, res.TotalInstructions)
+		for _, u := range res.ThreadInstructionCount {
+			assert.NotZero(t, u)
+		}
 	}
 
 	_, _ = syscall.Wait4(pid, nil, 0, nil)

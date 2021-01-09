@@ -80,7 +80,7 @@ import (
 	"unsafe"
 )
 
-func init() {
+func PqosInit() {
 	/**
 	  int fd_log;
 	  void (*callback_log)(void *context,

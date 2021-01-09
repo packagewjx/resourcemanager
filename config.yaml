@@ -8,7 +8,8 @@ MemTrace:
 perfstat:
   SampleTime: 10s
 algorithm:
-  MPKIVeryHigh: 10
-  HPKIVeryHigh: 10
-  IPCLow: 0.5
-  NonCriticalCacheSize: 512
+  classify:
+    MPKIVeryHigh: 10
+    HPKIVeryHigh: 10
+    IPCLow: 0.5
+    NonCriticalCacheSize: 512

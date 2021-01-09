@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"encoding/csv"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
 	"github.com/pkg/errors"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,8 +45,10 @@ type MemRecordAttachRequest struct {
 }
 
 type MemRecordResult struct {
-	ThreadTrace map[int]algorithm.RTHCalculator
-	Err         error
+	ThreadTrace            map[int]algorithm.RTHCalculator
+	ThreadInstructionCount map[int]uint64
+	TotalInstructions      uint64
+	Err                    error
 }
 
 type RTHCalculatorFactory func(tid int) algorithm.RTHCalculator
@@ -69,13 +73,14 @@ type MemRecorderAttachConfig struct {
 }
 
 type pinContext struct {
-	name     string
-	pinCmd   *exec.Cmd
-	kill     bool
-	factory  RTHCalculatorFactory
-	resCh    chan *MemRecordResult
-	readCnt  uint // 性能优化使用，监测读取速度
-	fifoPath string
+	name       string
+	pinCmd     *exec.Cmd
+	kill       bool
+	factory    RTHCalculatorFactory
+	resCh      chan *MemRecordResult
+	readCnt    uint // 性能优化使用，监测读取速度
+	fifoPath   string
+	iCountPath string
 }
 
 func NewMemRecorder(config *Config) MemRecorder {
@@ -109,6 +114,7 @@ func (m *pinRecorder) pinTraceReader(ctx context.Context, pinCtx *pinContext, ca
 			_ = pinCtx.pinCmd.Process.Kill()
 		}
 		_ = os.Remove(pinCtx.fifoPath)
+		_ = os.Remove(pinCtx.iCountPath)
 		close(pinCtx.resCh)
 	}()
 
@@ -183,11 +189,22 @@ outerLoop:
 		fmt.Println("读取异常结束", err)
 	}
 
+	// 读取指标数量文件用于加权平均
+	counts, err := readInstructionCounts(pinCtx.iCountPath)
+	totalCount := uint64(0)
+	if err != nil {
+		m.logger.Printf("读取指令数量文件 %s 出错： %v", pinCtx.iCountPath, err)
+	} else {
+		totalCount = counts[0]
+	}
+
 	m.logger.Printf("采集结束，总共采集 %d 条内存访问地址", pinCtx.readCnt)
 	_ = fin.Close()
 	pinCtx.resCh <- &MemRecordResult{
-		ThreadTrace: cMap,
-		Err:         nil,
+		ThreadTrace:            cMap,
+		ThreadInstructionCount: counts,
+		TotalInstructions:      totalCount,
+		Err:                    nil,
 	}
 }
 
@@ -284,18 +301,20 @@ func (m *pinRecorder) RecordCommand(ctx context.Context, request *MemRecordRunRe
 		return resCh
 	}
 	pinToolPath, _ := filepath.Abs(m.toolPath)
+	iCountPath := fmt.Sprintf("%s.icount.csv", request.Name)
 	pinArgs := []string{"-t", pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize",
 		fmt.Sprintf("%d", m.bufferSize), "-stopat",
-		fmt.Sprintf("%d", m.traceCount), "--", request.Cmd}
+		fmt.Sprintf("%d", m.traceCount), "-icountcsv", iCountPath, "--", request.Cmd}
 	pinArgs = append(pinArgs, request.Args...)
 	pinCmd := exec.Command("pin", pinArgs...)
 	pinCtx := &pinContext{
-		name:     request.Name,
-		pinCmd:   pinCmd,
-		kill:     request.Kill,
-		factory:  request.Factory,
-		resCh:    resCh,
-		fifoPath: fifoPath,
+		name:       request.Name,
+		pinCmd:     pinCmd,
+		kill:       request.Kill,
+		factory:    request.Factory,
+		resCh:      resCh,
+		fifoPath:   fifoPath,
+		iCountPath: iCountPath,
 	}
 
 	m.startMemTrace(ctx, pinCtx)
@@ -313,17 +332,19 @@ func (m *pinRecorder) RecordProcess(ctx context.Context, request *MemRecordAttac
 		return resCh
 	}
 	pinToolPath, _ := filepath.Abs(m.toolPath)
+	iCountPath := fmt.Sprintf("%s.icount.csv", request.Name)
 	pinCmd := exec.Command("pin", "-pid", fmt.Sprintf("%d", request.Pid), "-t",
 		pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize", fmt.Sprintf("%d", m.bufferSize),
-		"-stopat", fmt.Sprintf("%d", m.traceCount))
+		"-stopat", fmt.Sprintf("%d", m.traceCount), "-icountcsv", iCountPath)
 
 	pinCtx := &pinContext{
-		name:     request.Name,
-		pinCmd:   pinCmd,
-		kill:     request.Kill,
-		factory:  request.Factory,
-		resCh:    resCh,
-		fifoPath: fifoPath,
+		name:       request.Name,
+		pinCmd:     pinCmd,
+		kill:       request.Kill,
+		factory:    request.Factory,
+		resCh:      resCh,
+		fifoPath:   fifoPath,
+		iCountPath: iCountPath,
 	}
 
 	m.startMemTrace(ctx, pinCtx)
@@ -331,3 +352,27 @@ func (m *pinRecorder) RecordProcess(ctx context.Context, request *MemRecordAttac
 }
 
 var _ MemRecorder = &pinRecorder{}
+
+func readInstructionCounts(file string) (map[int]uint64, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	all, err := csv.NewReader(f).ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	res := make(map[int]uint64)
+	for _, record := range all {
+		tid, err := strconv.ParseInt(record[0], 10, 32)
+		if err != nil {
+			return nil, errors.Wrap(err, "解析线程ID出错")
+		}
+		count, err := strconv.ParseUint(record[1], 10, 64)
+		if err != nil {
+			return nil, errors.Wrap(err, "解析指令数量出错")
+		}
+		res[int(tid)] = count
+	}
+	return res, nil
+}
