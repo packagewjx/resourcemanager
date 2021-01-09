@@ -20,10 +20,11 @@ memtrace:
 perfstat:
     sampletime: 10s
 algorithm:
-    mpkiveryhigh: 6
-    hpkiveryhigh: 7
-    ipclow: 8
-    noncriticalcachesize: 9
+    classify:
+        mpkiveryhigh: 6
+        hpkiveryhigh: 7
+        ipcverylow: 8
+        noncriticalcachesize: 9
 `)
 	viper.SetConfigType("yaml")
 	err := viper.ReadConfig(configIN)
@@ -38,9 +39,9 @@ algorithm:
 	assert.Equal(t, 4, c.MemTrace.WriteThreshold)
 	assert.Equal(t, 5, c.MemTrace.ReservoirSize)
 	assert.Equal(t, 10*time.Second, c.PerfStat.SampleTime)
-	assert.Equal(t, float32(6), c.Algorithm.MPKIVeryHigh)
-	assert.Equal(t, float32(7), c.Algorithm.HPKIVeryHigh)
-	assert.Equal(t, float32(8), c.Algorithm.IPCVeryLow)
-	assert.Equal(t, 9, c.Algorithm.NonCriticalCacheSize)
+	assert.Equal(t, float64(6), c.Algorithm.Classify.MPKIVeryHigh)
+	assert.Equal(t, float64(7), c.Algorithm.Classify.HPKIVeryHigh)
+	assert.Equal(t, float64(8), c.Algorithm.Classify.IPCVeryLow)
+	assert.Equal(t, 9, c.Algorithm.Classify.NonCriticalCacheSize)
 
 }

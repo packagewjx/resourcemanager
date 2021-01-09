@@ -91,6 +91,14 @@ func (p *PerfStatResult) HitPerKiloInstructions() float64 {
 	return float64(p.AllStores+p.AllLoads-p.LLCMisses) / float64(p.Instructions) * 1000
 }
 
+func (p *PerfStatResult) CyclesPerNoAccessInstructions() float64 {
+	return float64((p.Cycles - p.MemAnyCycles)) / float64(p.Instructions-p.AllStores-p.AllLoads)
+}
+
+func (p *PerfStatResult) AccessLLCPerInstructions() float64 {
+	return float64(p.LLCReferences) / float64(p.Instructions)
+}
+
 type PerfStatRunner interface {
 	Start(ctx context.Context) <-chan map[int]*PerfStatResult
 }

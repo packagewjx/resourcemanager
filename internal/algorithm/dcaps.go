@@ -1,86 +1,55 @@
 package algorithm
 
 import (
+	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/pqos"
+	"github.com/packagewjx/resourcemanager/internal/sampler/perf"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 )
 
-const MaxIteration = 200
-const InitialStep float32 = 10000.0
-const MinStep float32 = 100
-const StepReductionRatio float32 = 0.95
-
-type PredictMetric struct {
+type predictResult struct {
 	Pid       int
-	MissRate  float32
-	IPC       float32
+	MissRate  float64
+	IPC       float64
 	Occupancy int // L3缓存占用，单位为缓存行
 }
 
+// DCAPS算法输入。以进程为单位进行分配的计算。
 type ProgramMetric struct {
-	Pid          int
-	MRC          []float32
-	Instructions int
-	L1Hit        int
-	L2Hit        int
-	L3Hit        int
-	L3Miss       int
+	Pid      int
+	MRC      []float32
+	PerfStat *perf.PerfStatResult
 }
 
-func (p ProgramMetric) Api() float32 {
-	return float32(p.L1Hit+p.L2Hit+p.L3Hit+p.L3Miss) / float32(p.Instructions)
+type predictMetric struct {
+	averageMpki     float64
+	throughput      float64
+	averageSlowDown float64
+	fairSlowDown    float64
+	maximumSlowDown float64
 }
 
 type predictContext struct {
 	ProgramMetric
-	PredictMetric
+	predictResult
 	scheme    *pqos.CLOSScheme
-	apc       float32
+	apc       float64
 	miss      int
-	pEviction float32
+	pEviction float64
 }
 
-var cpiBase = utils.GetCPIBase()
-var l1lat, l2lat, l3lat, memLat = utils.GetMemAccessLatency()
 var numWays, numSets, _ = utils.GetL3Cap()
 
-func estimateIPC(pred *predictContext) float32 {
-	apiL1 := float32(pred.L1Hit) / float32(pred.Instructions)
-	apiL2 := float32(pred.L2Hit) / float32(pred.Instructions)
-	apiL3 := float32(pred.L3Hit+pred.L3Miss) / float32(pred.Instructions)
-	cpi := cpiBase + float32(l1lat)*apiL1 + float32(l2lat)*apiL2 + float32(l3lat)*apiL3 + float32(memLat)*apiL3*pred.MissRate
+func estimateIPC(pred *predictContext) float64 {
+	cpiBase := pred.PerfStat.CyclesPerNoAccessInstructions()
+	latCache := pred.PerfStat.AverageCacheHitLatency()
+	predictMissPenalty := pred.PerfStat.AccessLLCPerInstructions() * pred.MissRate * pred.PerfStat.AverageCacheMissLatency()
+	cpi := cpiBase + latCache + predictMissPenalty
 	return 1 / cpi
 }
 
-func Predict(programs []*ProgramMetric, schemes []*pqos.CLOSScheme) []*PredictMetric {
-	programContext := make([]*predictContext, len(programs))
-	idxMap := make(map[int]int)
-	for i, metric := range programs {
-		programContext[i] = &predictContext{
-			ProgramMetric: *metric,
-			PredictMetric: PredictMetric{},
-			scheme:        nil,
-			apc:           0,
-			miss:          0,
-			pEviction:     0,
-		}
-		idxMap[metric.Pid] = i
-	}
-	for _, scheme := range schemes {
-		for _, pid := range scheme.Processes {
-			programContext[idxMap[pid]].scheme = scheme
-		}
-	}
-
-	doPredict(programContext)
-
-	result := make([]*PredictMetric, len(programs))
-	for i, context := range programContext {
-		result[i] = &PredictMetric{}
-		*result[i] = context.PredictMetric
-	}
-
-	return result
+func getMaxWayBit(ways int) int {
+	return (1 << ways) - 1
 }
 
 func doPredict(programs []*predictContext) {
@@ -92,33 +61,33 @@ func doPredict(programs []*predictContext) {
 		occupancy[i] = make([]int, numWays)
 		intervalMiss[i] = make([]int, numWays)
 		mask := 0x1
-		numWays := utils.NumBits(programs[i].scheme.WayBit)
-		for j := 0; j < numWays; j++ {
+		schemeWays := utils.NumBits(programs[i].scheme.WayBit)
+		for j := 0; j < schemeWays; j++ {
 			if mask&programs[j].scheme.WayBit == mask {
-				occupancy[i][j] = equalShare / numWays
+				occupancy[i][j] = equalShare / schemeWays
 			}
 		}
 	}
 
-	step := InitialStep
-	for iter := 0; iter < MaxIteration; iter++ {
-		var PBase float32 = 0
+	step := core.RootConfig.Algorithm.DCAPS.InitialStep
+	for iter := 0; iter < core.RootConfig.Algorithm.DCAPS.MaxIteration; iter++ {
+		var PBase float64 = 0
 		// Occupancy to Miss Rate
 		for i, program := range programs {
 			program.Occupancy = 0
 			for j := 0; j < len(occupancy[i]); j++ {
 				program.Occupancy += occupancy[i][j]
 			}
-			program.MissRate = program.MRC[program.Occupancy]
+			program.MissRate = float64(program.MRC[program.Occupancy])
 			program.IPC = estimateIPC(program)
-			program.apc = program.IPC * program.Api()
+			program.apc = program.IPC * program.PerfStat.AccessPerInstruction()
 			program.miss = int(program.MissRate * program.apc * step)
-			PBase += float32(program.Occupancy) / program.apc
+			PBase += float64(program.Occupancy) / program.apc
 		}
 
 		// Eviction Probability
 		for _, program := range programs {
-			program.pEviction = 1 / (PBase * program.apc / float32(program.Occupancy))
+			program.pEviction = 1 / (PBase * program.apc / float64(program.Occupancy))
 		}
 
 		// Miss Rate to Occupancy
@@ -133,15 +102,53 @@ func doPredict(programs []*predictContext) {
 			}
 			for i := 0; i < len(occupancy); i++ {
 				occupancy[i][j] = occupancy[i][j] + intervalMiss[i][j] -
-					int(float32(totalIntervalMiss)*programs[i].pEviction)
+					int(float64(totalIntervalMiss)*programs[i].pEviction)
 			}
 		}
-		if step > MinStep {
-			step *= StepReductionRatio
+		if step > core.RootConfig.Algorithm.DCAPS.MinStep {
+			step *= core.RootConfig.Algorithm.DCAPS.StepReductionRatio
 		}
 	}
 }
 
-func Allocate() {
+func calculateMetric(list []*predictContext) *predictMetric {
+	panic("implement me")
+}
 
+// 返回负数代表a好，返回正数代表b好，0代表相等
+func compareMetric(a, b *predictMetric) int {
+	panic("implement me")
+}
+
+func randomNeighbor(list []*predictContext) []*predictContext {
+	panic("implement me")
+}
+
+// DCAPS算法修改版
+func DCAPS(processes []*ProgramMetric) []*pqos.CLOSScheme {
+	list := make([]*predictContext, len(processes))
+	idxMap := make(map[int]int)
+	for i, metric := range processes {
+		list[i] = &predictContext{
+			ProgramMetric: *metric,
+			predictResult: predictResult{},
+			scheme: &pqos.CLOSScheme{
+				CLOSNum:     0,
+				WayBit:      0x7FF,
+				MemThrottle: 100,
+				Processes:   nil,
+			},
+			apc:       0,
+			miss:      0,
+			pEviction: 0,
+		}
+		idxMap[metric.Pid] = i
+	}
+
+	// 计算分配方案
+
+	// 预测IPC等
+	doPredict(list)
+
+	panic("implement me")
 }

@@ -140,17 +140,18 @@ func isBully(stat *perf.PerfStatResult) bool {
 	mpki := stat.MissPerKiloInstructions()
 	hpki := stat.HitPerKiloInstructions()
 	ipc := stat.InstructionPerCycle()
-	return mpki >= core.RootConfig.Algorithm.MPKIVeryHigh && hpki >= core.RootConfig.Algorithm.HPKIVeryHigh &&
-		ipc <= core.RootConfig.Algorithm.IPCVeryLow
+	return mpki >= core.RootConfig.Algorithm.Classify.MPKIVeryHigh && hpki >= core.RootConfig.Algorithm.Classify.HPKIVeryHigh &&
+		ipc <= core.RootConfig.Algorithm.Classify.IPCVeryLow
 }
 
 func isNonCritical(mrc []float32) bool {
-	return mrc[core.RootConfig.Algorithm.NonCriticalCacheSize] < 0.05
+	return mrc[core.RootConfig.Algorithm.Classify.NonCriticalCacheSize] < 0.05
 }
 
 func isSquanderer(mrc []float32, stat *perf.PerfStatResult) bool {
 	ipc := float64(stat.Instructions) / float64(stat.Cycles)
-	if ipc <= core.RootConfig.Algorithm.IPCLow || stat.LLCMissRate() > core.RootConfig.Algorithm.LLCMissRateHigh {
+	if ipc <= core.RootConfig.Algorithm.Classify.IPCLow || stat.LLCMissRate() > core.RootConfig.Algorithm.Classify.LLCMissRateHigh ||
+		stat.AccessLLCPerInstructions() >= core.RootConfig.Algorithm.Classify.LLCAPIHigh {
 		// MRC必然是单调递减的。因此分成多个区间，每个区间查看其斜率，找到斜率低于阈值的位置。阈值通常是取值为加大缓存空间收益小的位置。
 		const intervalCount = 1000
 		const slopeThreshold = 1.0 / intervalCount
@@ -171,13 +172,13 @@ func isSquanderer(mrc []float32, stat *perf.PerfStatResult) bool {
 			return false
 		}
 		// 若MissRate基本不变化时依旧很高，就认为是Squanderer
-		return float64(mrc[targetPosition]) > core.RootConfig.Algorithm.MRCLowest
+		return float64(mrc[targetPosition]) > core.RootConfig.Algorithm.Classify.MRCLowest
 	}
 	return false
 }
 
 func isMedium(mrc []float32) bool {
-	return mrc[core.RootConfig.Algorithm.MediumCacheSize] < 0.05
+	return mrc[core.RootConfig.Algorithm.Classify.MediumCacheSize] < 0.05
 }
 
 func determineCharacteristic(p *ProcessResult) MemoryCharacteristic {

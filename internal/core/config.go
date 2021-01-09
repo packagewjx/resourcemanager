@@ -33,16 +33,29 @@ type PerfStatConfig struct {
 	SampleTime time.Duration
 }
 
-type AlgorithmConfig struct {
+type ClassifyConfig struct {
 	MPKIVeryHigh         float64
 	HPKIVeryHigh         float64
 	HPKIVeryLow          float64
 	IPCVeryLow           float64
 	IPCLow               float64
 	LLCMissRateHigh      float64
+	LLCAPIHigh           float64
 	MRCLowest            float64
 	NonCriticalCacheSize int
 	MediumCacheSize      int
+}
+
+type DCAPSConfig struct {
+	MaxIteration       int
+	InitialStep        float64
+	MinStep            float64
+	StepReductionRatio float64
+}
+
+type AlgorithmConfig struct {
+	Classify ClassifyConfig
+	DCAPS    DCAPSConfig
 }
 
 type KubernetesConfig struct {
@@ -74,15 +87,19 @@ var RootConfig = &Config{
 		SampleTime: 10 * time.Second,
 	},
 	Algorithm: AlgorithmConfig{
-		MPKIVeryHigh:         10,
-		HPKIVeryHigh:         10,
-		HPKIVeryLow:          0.5,
-		IPCVeryLow:           0.6,
-		IPCLow:               1.3,
-		LLCMissRateHigh:      0.4,
-		MRCLowest:            0.3,
-		NonCriticalCacheSize: 512,   // L1的大小
-		MediumCacheSize:      16384, // L3两个Set的大小
+		Classify: ClassifyConfig{
+			MPKIVeryHigh:         10,
+			HPKIVeryHigh:         10,
+			HPKIVeryLow:          0.5,
+			IPCVeryLow:           0.6,
+			IPCLow:               1.3,
+			LLCMissRateHigh:      0.4,
+			LLCAPIHigh:           0.005,
+			MRCLowest:            0.3,
+			NonCriticalCacheSize: 512,   // L1的大小
+			MediumCacheSize:      16384, // L3两个Set的大小
+		},
+		DCAPS: DCAPSConfig{},
 	},
 	Manager: ManagerConfig{
 		AllocCoolDown:               60 * time.Second,

@@ -23,7 +23,6 @@ func TestPerfStat(t *testing.T) {
 		assert.NotZero(t, result.AllLoads)
 		assert.NotZero(t, result.AllStores)
 		assert.NotZero(t, result.LLCLoadMisses)
-		assert.NotZero(t, result.LLCStoreMisses)
 		assert.NotZero(t, result.Instructions)
 		assert.NotZero(t, result.Cycles)
 	}
