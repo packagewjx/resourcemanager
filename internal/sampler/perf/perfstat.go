@@ -20,16 +20,16 @@ import (
 const (
 	pAllLoads     = "mem_inst_retired.all_loads"
 	pAllStores    = "mem_inst_retired.all_stores"
-	pL3Miss       = "longest_lat_cache.miss"
-	pL3LoadMisses = "LLC-load-misses"
 	pCycles       = "cpu_clk_unhalted.thread"
 	pInstructions = "inst_retired.any"
 	pL3MissCycles = "cycle_activity.cycles_l3_miss"
 	pMemAnyCycles = "cycle_activity.cycles_mem_any"
+	pL3Hit        = "cpu/event=0xb7,umask=0x01,offcore_rsp=0x801C0003,name=L3Hit/"
+	pL3Miss       = "cpu/event=0xb7,umask=0x01,offcore_rsp=0x84000003,name=L3Miss/"
 )
 
-var perfStatEvents = fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s", pAllLoads, pAllStores, pL3Miss, pL3LoadMisses,
-	pCycles, pInstructions, pL3MissCycles, pMemAnyCycles)
+var perfStatEvents = fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s", pAllLoads, pAllStores,
+	pL3Hit, pL3Miss, pCycles, pInstructions, pL3MissCycles, pMemAnyCycles)
 
 type PerfStatResult struct {
 	Pid           int
@@ -38,11 +38,10 @@ type PerfStatResult struct {
 	AllStores     uint64 // mem_inst_retired.all_stores
 	Instructions  uint64 // inst_retired.any
 	Cycles        uint64 // cpu_clk_unhalted.thread
-	LLCReferences uint64 // longest_lat_cache.reference
-	LLCMisses     uint64 // longest_lat_cache.miss
-	MemAnyCycles  uint64 // cycle_activity.cycles_mem_any
-	LLCMissCycles uint64 // cycle_activity.cycles_l3_miss
-	LLCLoadMisses uint64 // LLC-load-misses
+	MemAnyCycles  uint64 // cycle_activity.cycles_mem_any 可能有prefetch的
+	LLCMissCycles uint64 // cycle_activity.cycles_l3_miss 看上去是只有demand read 和 rfo
+	LLCHit        uint64 // L3Hit
+	LLCMiss       uint64 // L3Miss
 }
 
 func (p *PerfStatResult) Clone() core.Cloneable {
@@ -53,16 +52,15 @@ func (p *PerfStatResult) Clone() core.Cloneable {
 		AllStores:     p.AllStores,
 		Instructions:  p.Instructions,
 		Cycles:        p.Cycles,
-		LLCReferences: p.LLCReferences,
-		LLCMisses:     p.LLCMisses,
 		MemAnyCycles:  p.MemAnyCycles,
 		LLCMissCycles: p.LLCMissCycles,
-		LLCLoadMisses: p.LLCLoadMisses,
+		LLCHit:        p.LLCHit,
+		LLCMiss:       p.LLCMiss,
 	}
 }
 
 func (p *PerfStatResult) LLCMissRate() float64 {
-	return float64(p.LLCMisses) / float64(p.LLCReferences)
+	return float64(p.LLCMiss) / float64(p.LLCMiss+p.LLCHit)
 }
 
 func (p *PerfStatResult) AccessPerInstruction() float64 {
@@ -71,12 +69,12 @@ func (p *PerfStatResult) AccessPerInstruction() float64 {
 
 func (p *PerfStatResult) AverageCacheHitLatency() float64 {
 	cycles := float64(p.MemAnyCycles - p.LLCMissCycles)
-	hitCount := float64(p.AllLoads - p.LLCMisses)
+	hitCount := float64(p.AllStores + p.AllLoads - p.LLCMiss)
 	return cycles / hitCount
 }
 
 func (p *PerfStatResult) AverageCacheMissLatency() float64 {
-	return float64(p.LLCMissCycles) / float64(p.LLCLoadMisses)
+	return float64(p.LLCMissCycles) / float64(p.LLCMiss)
 }
 
 func (p *PerfStatResult) InstructionPerCycle() float64 {
@@ -84,19 +82,20 @@ func (p *PerfStatResult) InstructionPerCycle() float64 {
 }
 
 func (p *PerfStatResult) MissPerKiloInstructions() float64 {
-	return float64(p.LLCMisses) / float64(p.Instructions) * 1000
+	return float64(p.LLCMiss) / float64(p.Instructions) * 1000
 }
 
 func (p *PerfStatResult) HitPerKiloInstructions() float64 {
-	return float64(p.AllStores+p.AllLoads-p.LLCMisses) / float64(p.Instructions) * 1000
+	return float64(p.AllStores+p.AllLoads-p.LLCMiss) / float64(p.Instructions) * 1000
 }
 
+// 不访问内存的指令的CPI
 func (p *PerfStatResult) CyclesPerNoAccessInstructions() float64 {
 	return float64((p.Cycles - p.MemAnyCycles)) / float64(p.Instructions-p.AllStores-p.AllLoads)
 }
 
 func (p *PerfStatResult) AccessLLCPerInstructions() float64 {
-	return float64(p.LLCReferences) / float64(p.Instructions)
+	return float64(p.LLCMiss+p.LLCHit) / float64(p.Instructions)
 }
 
 type PerfStatRunner interface {
@@ -129,11 +128,15 @@ func (p *perfStatRunner) perfRunner(pid int, cmd *exec.Cmd, position []*PerfStat
 		p.logger.Printf("Perf Stat进程 %d 正常退出", cmd.Process.Pid)
 	}
 	position[0] = p.parseResult(buffer)
+	position[0].Pid = pid
 }
 
 func (p *perfStatRunner) parseResult(out io.Reader) *PerfStatResult {
 	res := &PerfStatResult{}
-	statRecords, _ := csv.NewReader(out).ReadAll()
+	statRecords, err := csv.NewReader(out).ReadAll()
+	if err != nil {
+		panic(err)
+	}
 	for _, record := range statRecords {
 		cnt, err := strconv.ParseUint(record[0], 10, 64)
 		if err != nil {
@@ -153,10 +156,6 @@ func (p *perfStatRunner) parseResult(out io.Reader) *PerfStatResult {
 			res.AllLoads = cnt
 		case pAllStores:
 			res.AllStores = cnt
-		case pL3Miss:
-			res.LLCMisses = cnt
-		case pL3LoadMisses:
-			res.LLCLoadMisses = cnt
 		case pCycles:
 			res.Cycles = cnt
 		case pInstructions:
@@ -165,6 +164,10 @@ func (p *perfStatRunner) parseResult(out io.Reader) *PerfStatResult {
 			res.LLCMissCycles = cnt
 		case pMemAnyCycles:
 			res.MemAnyCycles = cnt
+		case "L3Miss":
+			res.LLCMiss = cnt
+		case "L3Hit":
+			res.LLCHit = cnt
 		}
 	}
 

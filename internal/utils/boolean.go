@@ -8,3 +8,7 @@ func NumBits(n int) int {
 	}
 	return res
 }
+
+func GetLowestBits(n int) int {
+	return (1 << n) - 1
+}

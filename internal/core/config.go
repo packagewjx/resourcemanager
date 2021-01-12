@@ -1,8 +1,13 @@
 package core
 
 import (
+	"fmt"
+	"github.com/pkg/errors"
 	"math"
+	"os"
+	"reflect"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -47,10 +52,16 @@ type ClassifyConfig struct {
 }
 
 type DCAPSConfig struct {
-	MaxIteration       int
-	InitialStep        float64
-	MinStep            float64
-	StepReductionRatio float64
+	MaxIteration                        int
+	InitialStep                         float64
+	MinStep                             float64
+	StepReductionRatio                  float64
+	InitialTemperature                  float64
+	TemperatureMin                      float64
+	TemperatureReductionRatio           float64
+	K                                   float64 // 计算是否更改计划的概率公式常数。值越大，概率越大
+	ProbabilityChangeScheme             float64
+	AggregateChangeOfOccupancyThreshold int
 }
 
 type AlgorithmConfig struct {
@@ -99,11 +110,64 @@ var RootConfig = &Config{
 			NonCriticalCacheSize: 512,   // L1的大小
 			MediumCacheSize:      16384, // L3两个Set的大小
 		},
-		DCAPS: DCAPSConfig{},
+		DCAPS: DCAPSConfig{
+			MaxIteration:                        200,
+			InitialStep:                         10000,
+			MinStep:                             100,
+			StepReductionRatio:                  0.8,
+			InitialTemperature:                  10000,
+			TemperatureMin:                      100,
+			TemperatureReductionRatio:           0.8,
+			K:                                   1,
+			ProbabilityChangeScheme:             0.1,
+			AggregateChangeOfOccupancyThreshold: 100,
+		},
 	},
 	Manager: ManagerConfig{
 		AllocCoolDown:               60 * time.Second,
 		AllocSquash:                 50 * time.Millisecond,
 		ChangeProcessCountThreshold: 100, // 暂定
 	},
+}
+
+func checkNotZero(val reflect.Value, path []string) error {
+	if val.Kind() == reflect.String {
+		return nil
+	} else if val.Kind() == reflect.Struct {
+		typ := reflect.TypeOf(val)
+		for i := 0; i < val.NumField(); i++ {
+			field := val.Field(i)
+			err := checkNotZero(field, append(path, typ.Field(i).Name))
+			if err != nil {
+				return err
+			}
+		}
+	} else if val.Kind() == reflect.Float64 {
+		if val.Float() == 0 {
+			return fmt.Errorf("字段 %s 为0", strings.Join(path, "."))
+		}
+	} else if val.Kind() == reflect.Int {
+		if val.Int() == 0 {
+			return fmt.Errorf("字段 %s 为0", strings.Join(path, "."))
+		}
+	} else {
+		panic(fmt.Sprintf("没有遇到的类型 %s", val.Kind()))
+	}
+	return nil
+}
+
+func checkConfig(config *Config) error {
+	pinToolPath := config.MemTrace.PinToolPath
+	_, err := os.Stat(pinToolPath)
+	if os.IsNotExist(err) {
+		return errors.Wrap(err, fmt.Sprintf("无法访问PinTool路径%s", pinToolPath))
+	}
+
+	// 检查不能为0的字段
+	err = checkNotZero(reflect.ValueOf(config), []string{})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
