@@ -8,10 +8,12 @@ import (
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/pkg/errors"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -31,7 +33,7 @@ const (
 var perfStatEvents = fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s", pAllLoads, pAllStores,
 	pL3Hit, pL3Miss, pCycles, pInstructions, pL3MissCycles, pMemAnyCycles)
 
-type PerfStatResult struct {
+type StatResult struct {
 	Pid           int
 	Error         error
 	AllLoads      uint64 // mem_inst_retired.all_loads
@@ -44,65 +46,69 @@ type PerfStatResult struct {
 	LLCMiss       uint64 // L3Miss
 }
 
-func (p *PerfStatResult) Clone() core.Cloneable {
-	return &PerfStatResult{
-		Pid:           p.Pid,
-		Error:         p.Error,
-		AllLoads:      p.AllLoads,
-		AllStores:     p.AllStores,
-		Instructions:  p.Instructions,
-		Cycles:        p.Cycles,
-		MemAnyCycles:  p.MemAnyCycles,
-		LLCMissCycles: p.LLCMissCycles,
-		LLCHit:        p.LLCHit,
-		LLCMiss:       p.LLCMiss,
+func (p *StatResult) Clone() core.Cloneable {
+	if p == nil {
+		return nil
+	} else {
+		return &StatResult{
+			Pid:           p.Pid,
+			Error:         p.Error,
+			AllLoads:      p.AllLoads,
+			AllStores:     p.AllStores,
+			Instructions:  p.Instructions,
+			Cycles:        p.Cycles,
+			MemAnyCycles:  p.MemAnyCycles,
+			LLCMissCycles: p.LLCMissCycles,
+			LLCHit:        p.LLCHit,
+			LLCMiss:       p.LLCMiss,
+		}
 	}
 }
 
-func (p *PerfStatResult) LLCMissRate() float64 {
+func (p *StatResult) LLCMissRate() float64 {
 	return float64(p.LLCMiss) / float64(p.LLCMiss+p.LLCHit)
 }
 
-func (p *PerfStatResult) AccessPerInstruction() float64 {
+func (p *StatResult) AccessPerInstruction() float64 {
 	return float64(p.AllLoads+p.AllStores) / float64(p.Instructions)
 }
 
-func (p *PerfStatResult) AverageCacheHitLatency() float64 {
+func (p *StatResult) AverageCacheHitLatency() float64 {
 	cycles := float64(p.MemAnyCycles - p.LLCMissCycles)
 	hitCount := float64(p.AllStores + p.AllLoads - p.LLCMiss)
 	return cycles / hitCount
 }
 
-func (p *PerfStatResult) AverageCacheMissLatency() float64 {
+func (p *StatResult) AverageCacheMissLatency() float64 {
 	return float64(p.LLCMissCycles) / float64(p.LLCMiss)
 }
 
-func (p *PerfStatResult) InstructionPerCycle() float64 {
+func (p *StatResult) InstructionPerCycle() float64 {
 	return float64(p.Instructions) / float64(p.Cycles)
 }
 
-func (p *PerfStatResult) MissPerKiloInstructions() float64 {
+func (p *StatResult) MissPerKiloInstructions() float64 {
 	return float64(p.LLCMiss) / float64(p.Instructions) * 1000
 }
 
-func (p *PerfStatResult) HitPerKiloInstructions() float64 {
+func (p *StatResult) HitPerKiloInstructions() float64 {
 	return float64(p.AllStores+p.AllLoads-p.LLCMiss) / float64(p.Instructions) * 1000
 }
 
 // 不访问内存的指令的CPI
-func (p *PerfStatResult) CyclesPerNoAccessInstructions() float64 {
-	return float64((p.Cycles - p.MemAnyCycles)) / float64(p.Instructions-p.AllStores-p.AllLoads)
+func (p *StatResult) CyclesPerNoAccessInstructions() float64 {
+	return float64(p.Cycles-p.MemAnyCycles) / float64(p.Instructions-p.AllStores-p.AllLoads)
 }
 
-func (p *PerfStatResult) AccessLLCPerInstructions() float64 {
+func (p *StatResult) AccessLLCPerInstructions() float64 {
 	return float64(p.LLCMiss+p.LLCHit) / float64(p.Instructions)
 }
 
-type PerfStatRunner interface {
-	Start(ctx context.Context) <-chan map[int]*PerfStatResult
+type StatRunner interface {
+	Start(ctx context.Context) <-chan map[int]*StatResult
 }
 
-func NewPerfStatRunner(group *core.ProcessGroup) PerfStatRunner {
+func NewPerfStatRunner(group *core.ProcessGroup) StatRunner {
 	return &perfStatRunner{
 		group:  group,
 		logger: log.New(os.Stdout, fmt.Sprintf("perfstat-%s: ", group.Id), log.Lshortfile|log.Lmsgprefix|log.LstdFlags),
@@ -116,25 +122,27 @@ type perfStatRunner struct {
 	wg     sync.WaitGroup // 用于等待perf结束
 }
 
-func (p *perfStatRunner) perfRunner(pid int, cmd *exec.Cmd, position []*PerfStatResult) {
+func (p *perfStatRunner) perfRunner(pid int, cmd *exec.Cmd, position []*StatResult) {
 	defer p.wg.Done()
 	buffer := bytes.NewBuffer(make([]byte, 0, 1024))
 	cmd.Stderr = buffer
-	p.logger.Printf("启动对进程%d的监控", pid)
+	p.logger.Printf("启动对进程 %d 的监控，命令：%s", pid, strings.Join(cmd.Args, " "))
 	err := cmd.Run()
 	if err != nil {
-		p.logger.Printf("Perf Stat进程 %d 退出错误：%v", cmd.Process.Pid, err)
+		p.logger.Printf("监控进程 %d 的Perf Stat进程 %d 退出错误：%v", pid, cmd.Process.Pid, err)
 	} else {
-		p.logger.Printf("Perf Stat进程 %d 正常退出", cmd.Process.Pid)
+		p.logger.Printf("监控进程 %d 的Perf Stat进程 %d 正常退出", pid, cmd.Process.Pid)
 	}
 	position[0] = p.parseResult(buffer)
 	position[0].Pid = pid
 }
 
-func (p *perfStatRunner) parseResult(out io.Reader) *PerfStatResult {
-	res := &PerfStatResult{}
+func (p *perfStatRunner) parseResult(out io.Reader) *StatResult {
+	res := &StatResult{}
 	statRecords, err := csv.NewReader(out).ReadAll()
 	if err != nil {
+		all, _ := ioutil.ReadAll(out)
+		fmt.Println(string(all))
 		panic(err)
 	}
 	for _, record := range statRecords {
@@ -147,7 +155,7 @@ func (p *perfStatRunner) parseResult(out io.Reader) *PerfStatResult {
 		if err != nil {
 			p.logger.Printf("解析perf stat百分比异常，异常行：%v", record)
 		}
-		cnt = uint64((float64(cnt) / (percent / 100.0)))
+		cnt = uint64(float64(cnt) / (percent / 100.0))
 
 		switch record[2] {
 		default:
@@ -174,10 +182,10 @@ func (p *perfStatRunner) parseResult(out io.Reader) *PerfStatResult {
 	return res
 }
 
-func (p *perfStatRunner) Start(ctx context.Context) <-chan map[int]*PerfStatResult {
-	resultCh := make(chan map[int]*PerfStatResult, 1)
+func (p *perfStatRunner) Start(ctx context.Context) <-chan map[int]*StatResult {
+	resultCh := make(chan map[int]*StatResult, 1)
 	commands := make([]*exec.Cmd, len(p.group.Pid))
-	results := make([]*PerfStatResult, len(p.group.Pid))
+	results := make([]*StatResult, len(p.group.Pid))
 	for i := 0; i < len(p.group.Pid); i++ {
 		commands[i] = exec.Command("perf", "stat", "-e", perfStatEvents, "-ip", fmt.Sprintf("%d", p.group.Pid[i]), "-x", ",")
 		p.wg.Add(1)
@@ -195,7 +203,7 @@ func (p *perfStatRunner) Start(ctx context.Context) <-chan map[int]*PerfStatResu
 			_ = syscall.Kill(command.Process.Pid, syscall.SIGINT)
 		}
 		p.wg.Wait()
-		resultMap := make(map[int]*PerfStatResult)
+		resultMap := make(map[int]*StatResult)
 		for i, result := range results {
 			resultMap[p.group.Pid[i]] = result
 		}

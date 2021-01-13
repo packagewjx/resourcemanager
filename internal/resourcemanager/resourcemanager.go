@@ -1,6 +1,7 @@
 package resourcemanager
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/classifier"
@@ -43,7 +44,7 @@ type processCharacteristic struct {
 	pid            int
 	characteristic classifier.MemoryCharacteristic
 	mrc            []float32
-	perfStat       *perf.PerfStatResult
+	perfStat       *perf.StatResult
 }
 
 func (p *processCharacteristic) Clone() core.Cloneable {
@@ -53,7 +54,7 @@ func (p *processCharacteristic) Clone() core.Cloneable {
 		pid:            p.pid,
 		characteristic: p.characteristic,
 		mrc:            newMrc,
-		perfStat:       p.perfStat.Clone().(*perf.PerfStatResult),
+		perfStat:       p.perfStat.Clone().(*perf.StatResult),
 	}
 }
 
@@ -61,7 +62,11 @@ type processGroupMap sync.Map
 
 func (m *processGroupMap) get(name string) (*processGroupContext, bool) {
 	val, ok := ((*sync.Map)(m)).Load(name)
-	return val.(*processGroupContext), ok
+	if !ok {
+		return nil, false
+	} else {
+		return val.(*processGroupContext), ok
+	}
 }
 
 func (m *processGroupMap) store(p *processGroupContext) {
@@ -104,10 +109,11 @@ func New(config *Config) (ResourceManager, error) {
 		}),
 		watcher:       config.Watcher,
 		processGroups: (*processGroupMap)(&sync.Map{}),
-		logger:        log.New(os.Stdout, "ResourceManager", log.LstdFlags|log.Lshortfile|log.Lmsgprefix),
+		logger:        log.New(os.Stdout, "ResourceManager: ", log.LstdFlags|log.Lshortfile|log.Lmsgprefix),
 		wg:            sync.WaitGroup{},
 	}
-	r.reAllocTimerRoutine = newTimerRoutine(core.RootConfig.Manager.AllocCoolDown, core.RootConfig.Manager.AllocSquash, r.doReAlloc)
+	//r.reAllocTimerRoutine = newTimerRoutine(core.RootConfig.Manager.AllocCoolDown, core.RootConfig.Manager.AllocSquash, r.doReAlloc)
+	r.reAllocTimerRoutine = newTimerRoutine(core.RootConfig.Manager.AllocCoolDown, core.RootConfig.Manager.AllocSquash, r.writeResult)
 	return r, nil
 }
 
@@ -167,6 +173,7 @@ func (i *impl) handleProcessStatus(ctx context.Context, status *watcher.ProcessG
 
 func (i *impl) doReAlloc() {
 	// 首先获取快照，防止processGroups修改产生的一些意外后果
+	i.logger.Println("正在计算分配方案")
 	managedProcess := make([]*processCharacteristic, 0, 10)
 	i.processGroups.traverse(func(name string, group *processGroupContext) bool {
 		if group.state == processGroupStateClassifying || group.state == processGroupStateErrored {
@@ -185,7 +192,56 @@ func (i *impl) doReAlloc() {
 		return true
 	})
 
-	// 开始使用DCAPS计算分配方案
+	// TODO 使用DCAPS计算分配方案
+
+	i.logger.Println("分配方案计算完成，正在执行分配")
+
+	// TODO 使用librm分配
+
+	i.logger.Println("资源分配完成")
+}
+
+// 用于采集信息
+func (i *impl) writeResult() {
+	var perfStatCsv *os.File
+	name := "perfstat.csv"
+	if _, err := os.Stat(name); os.IsNotExist(err) {
+		perfStatCsv, err = os.Create(name)
+		if err != nil {
+			i.logger.Println("创建perfstat输出文件失败", err)
+			return
+		}
+		_, _ = perfStatCsv.WriteString("groupId,pid,instructions,cycles,allStores,allLoads,LLCMiss,LLCHit,MemAnyCycles,LLCMissCycles\n")
+	} else {
+		perfStatCsv, err = os.OpenFile(name, os.O_WRONLY|os.O_APPEND, 0)
+		if err != nil {
+			i.logger.Println("打开perfstat输出文件失败", err)
+			return
+		}
+	}
+
+	i.processGroups.traverse(func(name string, group *processGroupContext) bool {
+		for pid, characteristic := range group.classifyResult {
+			mrcCsv, err := os.Create(fmt.Sprintf("%s-%d.mrc.csv", group.group.Id, pid))
+			if err != nil {
+				i.logger.Println("创建MRC CSV 失败")
+			} else {
+				writer := bufio.NewWriter(mrcCsv)
+				for cacheSize, missRate := range characteristic.mrc {
+					_, _ = writer.WriteString(fmt.Sprintf("%d,%.4f\n", cacheSize, missRate))
+				}
+				_ = writer.Flush()
+				_ = mrcCsv.Close()
+			}
+			_, _ = perfStatCsv.WriteString(fmt.Sprintf("%s,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", group.group.Id,
+				characteristic.perfStat.Pid, characteristic.perfStat.Instructions, characteristic.perfStat.Cycles,
+				characteristic.perfStat.AllStores, characteristic.perfStat.AllLoads, characteristic.perfStat.LLCMiss,
+				characteristic.perfStat.LLCHit, characteristic.perfStat.MemAnyCycles, characteristic.perfStat.LLCMissCycles))
+		}
+		return true
+	})
+	_ = perfStatCsv.Close()
+	i.logger.Println("结果写入完成")
 }
 
 func (i *impl) classifyRoutine(ctx context.Context, groupContext *processGroupContext) {
@@ -195,14 +251,13 @@ func (i *impl) classifyRoutine(ctx context.Context, groupContext *processGroupCo
 	}()
 	groupContext.state = processGroupStateClassifying
 	ch := i.classifier.Classify(ctx, groupContext.group)
-	i.logger.Printf("对进程组 %s 进行分类", groupContext.group.Pid)
+	i.logger.Printf("对进程组 %s 进行分类", groupContext.group.Id)
 	result := <-ch // 这里直接等待这个，而没有ctx.Done，因为ctx结束时，理论上会返回结果
 	if result.Error != nil {
 		i.logger.Printf("对进程组 %s 的监控出错： %v", groupContext.group.Id, result.Error)
 		groupContext.state = processGroupStateErrored
 		return
 	}
-	groupContext.state = processGroupStateRunning
 	cMap := make(map[int]*processCharacteristic)
 	for _, processResult := range result.Processes {
 		if processResult.Error != nil {
@@ -219,10 +274,10 @@ func (i *impl) classifyRoutine(ctx context.Context, groupContext *processGroupCo
 				mrc:            processResult.WeightedAverageMRC,
 			}
 		}
-
 	}
 	groupContext.classifyResult = cMap
-	i.logger.Printf("进程组 %s 分类完成，准备执行分配")
+	i.logger.Printf("进程组 %s 分类完成，准备执行分配", groupContext.group.Id)
+	groupContext.state = processGroupStateRunning
 	i.reAllocTimerRoutine.requestRun()
 }
 
@@ -233,15 +288,16 @@ func (i *impl) Run() error {
 	}()
 	// 注册信号处理
 	sigCh := make(chan os.Signal)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM, syscall.SIGQUIT)
 	// 注册进程监视函数
 	watchChannel := i.watcher.Watch()
+	i.reAllocTimerRoutine.start(ctx)
 
 	for {
 		select {
 		case sig := <-sigCh:
 			signal.Ignore(sig) // 防止重复进入本函数
-			if sig == syscall.SIGTERM || sig == syscall.SIGINT {
+			if sig == syscall.SIGTERM || sig == syscall.SIGINT || sig == syscall.SIGQUIT {
 				i.logger.Println("接收到结束信号，正在关闭并回收所有资源")
 				i.gracefulShutdown()
 				return nil

@@ -1,35 +1,59 @@
 #!/usr/bin/env bash
 
-# 测试对象定义
+# 测试参数
 package=ferret
 benchInput=simlarge
-operation=pin
-traceCount=500000000
-perfEvents="mem_inst_retired.all_loads,mem_inst_retired.all_stores,cpu/event=0xb7,umask=0x01,offcore_rsp=0x801C0003,name=L3Hit/,cpu/event=0xb7,umask=0x01,offcore_rsp=0x84000003,name=L3Miss/,cpu_clk_unhalted.thread,inst_retired.any,cycle_activity.cycles_l3_miss,cycle_activity.cycles_mem_any"
-runCmd="./run -a run -S parsec -p $package -i $benchInput >/dev/null 2> /dev/null"
-#runCmd="./run -a run -S parsec -p $package -i $benchInput"
-currentDir=$(pwd)
-outFile=$currentDir"/sampleOut"
+suite=parsec
+threadCount=1
+parsecPackages="blackscholes bodytrack canneal dedup facesim ferret fluidanimate freqmine raytrace streamcluster swaptions vips x264"
+benchInput="test simdev simsmall simmedium simlarge native"
+
+# 启动容器制造环境
 cid=$(docker run -d --rm --entrypoint sleep spirals/parsec-3.0 3600)
 rootDir=$(docker inspect -f "{{.GraphDriver.Data.MergedDir}}" $cid)
-pinToolPath="/home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so"
 
-function getPid() {
-  awkScript='BEGIN {IFS=" "} $2 ~ /'"$package"'/ {print $1}'
-  echo "$(ps a -o pid,command | awk $awkScript)"
+function usage() {
+  echo "$0 [-p package] [-b benchInput] [-t threadCount]"
+  echo "package in [ $parsecPackages ]"
+  echo "benchInput in [ $benchInput ]"
 }
 
-if [[ $operation == "perf" ]]; then
-  sudo sh -c "cd $rootDir/home/parsec-3.0 && perf stat -e $perfEvents -o $currentDir/$outFile -x , $runCmd && docker kill $cid > /dev/null" &
-else
-  sudo sh -c "cd $rootDir/home/parsec-3.0 && $runCmd && docker kill $cid > /dev/null" &
-  pid=$(getPid)
-  while [[ -z $pid ]]; do
-    sleep 0.1
-    pid=$(getPid)
-  done
-  sudo /home/wjx/bin/pin -pid $pid -injection dynamic -t $pinToolPath -fifo $outFile -stopat $traceCount
+function abort() {
+  docker kill $cid >/dev/null
+  echo "aborted"
+  exit
+}
+
+trap abort INT
+trap abort QUIT
+trap abort TERM
+
+while getopts "p:b:hs:t:" opt; do
+  case $opt in
+  b)
+    benchInput=$OPTARG
+    ;;
+  p)
+    package=$OPTARG
+    ;;
+  s)
+    suite=$OPTARG
+    ;;
+  t)
+    threadCount=$OPTARG
+    ;;
+  h | *)
+    usage
+    exit
+    ;;
+  esac
+done
+
+if [[ ! ${parsecPackages[*]} =~ $package ]]; then
+  echo "package should be in [ $parsecPackages ]"
+  abort
 fi
 
-return
+runCmd="./run -a run -S $suite -p $package -i $benchInput -n $threadCount"
 
+sudo sh -c "cd $rootDir/home/parsec-3.0 && $runCmd && docker kill $cid > /dev/null"

@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/util/json"
 	"math"
 	"os"
 	"reflect"
@@ -24,10 +25,11 @@ type MemTraceConfig struct {
 	TraceCount    int
 	MaxRthTime    int
 	ConcurrentMax int
-	PinConfig     `mapstructure:",squash"`
+	PinConfig     `mapstructure:",squash" yaml:",inline"`
 }
 
 type PinConfig struct {
+	PinPath        string
 	PinToolPath    string
 	BufferSize     int
 	WriteThreshold int
@@ -88,6 +90,7 @@ var RootConfig = &Config{
 		MaxRthTime:    100000,
 		ConcurrentMax: int(math.Min(math.Max(1, float64(runtime.NumCPU())/4), 4)),
 		PinConfig: PinConfig{
+			PinPath:        "/home/wjx/bin/pin",
 			PinToolPath:    "/home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so",
 			BufferSize:     10000,
 			WriteThreshold: 20000,
@@ -156,7 +159,7 @@ func checkNotZero(val reflect.Value, path []string) error {
 	return nil
 }
 
-func checkConfig(config *Config) error {
+func (config *Config) Check() error {
 	pinToolPath := config.MemTrace.PinToolPath
 	_, err := os.Stat(pinToolPath)
 	if os.IsNotExist(err) {
@@ -170,4 +173,9 @@ func checkConfig(config *Config) error {
 	}
 
 	return nil
+}
+
+func (config *Config) String() string {
+	marshal, _ := json.Marshal(config)
+	return string(marshal)
 }

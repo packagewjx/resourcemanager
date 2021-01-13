@@ -17,23 +17,28 @@ package cmd
 
 import (
 	"github.com/packagewjx/resourcemanager/internal/core"
+	"github.com/packagewjx/resourcemanager/internal/resourcemanager"
 	"github.com/packagewjx/resourcemanager/internal/resourcemanager/watcher"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"time"
 )
+
+var packages = []string{"blackscholes", "bodytrack", "canneal", "dedup", "facesim", "ferret", "fluidanimate", "freqmine",
+	"rtview", "streamcluster", "swaptions", "vips", "x264"}
 
 // startCmd represents the start command
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "启动管控系统",
-	PreRunE: func(cmd *cobra.Command, args []string) error {
-		panic("implement me")
-	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		panic("implement me")
-	},
-	PostRun: func(cmd *cobra.Command, args []string) {
-		panic("implement me")
+		manager, err := resourcemanager.New(&resourcemanager.Config{
+			Watcher: watcher.NewProcessWatcher(packages, 200*time.Millisecond),
+		})
+		if err != nil {
+			return err
+		}
+		return manager.Run()
 	},
 }
 
@@ -43,13 +48,13 @@ func init() {
 	startCmd.Flags().StringP("token-file", "t", "",
 		"用于访问集群的Service Account Token")
 	_ = viper.BindPFlag("kubernetes.tokenfile", startCmd.Flags().Lookup("token-file"))
-	startCmd.Flags().StringP("ca-file", "c", "",
+	startCmd.Flags().StringP("ca-file", "", "",
 		"集群CA文件")
 	_ = viper.BindPFlag("kubernetes.cafile", startCmd.Flags().Lookup("ca-file"))
 	startCmd.Flags().BoolP("insecure", "n", false,
 		"支持TSL不安全连接")
 	_ = viper.BindPFlag("kubernetes.insecure", startCmd.Flags().Lookup("insecure"))
-	startCmd.Flags().StringP("host", "h", watcher.DefaultHost,
+	startCmd.Flags().StringP("host", "", watcher.DefaultHost,
 		"Kubernetes API地址")
 	_ = viper.BindPFlag("kubernetes.host", startCmd.Flags().Lookup("host"))
 	startCmd.Flags().IntP("reservoir-size", "r", core.RootConfig.MemTrace.ReservoirSize,

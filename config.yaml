@@ -1,15 +1,43 @@
-MemTrace:
-  TraceCount: 100000000
-  MaxRTHTime: 100000
-  PinToolPath: /home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so
-  BufferSize: 10000
-  WriteThreshold: 20000
-  ReservoirSize: 100000
+memtrace:
+    tracecount: 500000000
+    maxrthtime: 100000
+    concurrentmax: 1
+    pinpath: /home/wjx/bin/pin
+    pintoolpath: /home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so
+    buffersize: 10000
+    writethreshold: 20000
+    reservoirsize: 100000
 perfstat:
-  SampleTime: 10s
+    sampletime: 10s
 algorithm:
-  classify:
-    MPKIVeryHigh: 10
-    HPKIVeryHigh: 10
-    IPCLow: 0.5
-    NonCriticalCacheSize: 512
+    classify:
+        mpkiveryhigh: 10
+        hpkiveryhigh: 10
+        hpkiverylow: 0.5
+        ipcverylow: 0.6
+        ipclow: 1.3
+        llcmissratehigh: 0.4
+        llcapihigh: 0.005
+        mrclowest: 0.3
+        noncriticalcachesize: 512
+        mediumcachesize: 16384
+    dcaps:
+        maxiteration: 200
+        initialstep: 10000
+        minstep: 100
+        stepreductionratio: 0.8
+        initialtemperature: 10000
+        temperaturemin: 100
+        temperaturereductionratio: 0.8
+        k: 1
+        probabilitychangescheme: 0.1
+        aggregatechangeofoccupancythreshold: 100
+kubernetes:
+    tokenfile: ""
+    cafile: ""
+    insecure: false
+    host: https://localhost:8443
+manager:
+    alloccooldown: 1m0s
+    allocsquash: 50ms
+    changeprocesscountthreshold: 100

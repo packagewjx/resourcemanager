@@ -17,9 +17,11 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/fsnotify/fsnotify"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"log"
 	"os"
 )
 
@@ -64,10 +66,22 @@ func readConfig() {
 
 	err := viper.ReadInConfig()
 	if err != nil {
-		fmt.Println("读取配置出错", err)
+		log.Println("读取配置出错", err)
 	}
 	err = viper.UnmarshalExact(core.RootConfig)
 	if err != nil {
-		fmt.Println("读取配置出错", err)
+		log.Println("读取配置出错", err)
+	} else {
+		log.Println("读取到配置", core.RootConfig)
 	}
+
+	viper.WatchConfig()
+	viper.OnConfigChange(func(in fsnotify.Event) {
+		if in.Op == fsnotify.Write {
+			log.Printf("配置文件已更改，正在重新读取")
+			_ = viper.ReadInConfig()
+			_ = viper.UnmarshalExact(core.RootConfig)
+			log.Println("读取到配置", core.RootConfig)
+		}
+	})
 }

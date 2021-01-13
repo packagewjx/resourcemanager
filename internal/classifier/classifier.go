@@ -31,7 +31,7 @@ func init() {
 	L3Size = ways * sets
 }
 
-type FinishFunc func(group *core.ProcessGroup, characteristic MemoryCharacteristic, perfStat *perf.PerfStatResult, rth []int)
+type FinishFunc func(group *core.ProcessGroup, characteristic MemoryCharacteristic, perfStat *perf.StatResult, rth []int)
 type ErrorFunc func(group *core.ProcessGroup, err error)
 
 type Config struct {
@@ -49,7 +49,7 @@ type ProcessResult struct {
 	Pid                int
 	Error              error
 	Characteristic     MemoryCharacteristic
-	StatResult         *perf.PerfStatResult
+	StatResult         *perf.StatResult
 	MemTraceResult     *pin.MemRecordResult
 	WeightedAverageMRC []float32 // 加权平均MRC，权值为指令数量占比
 }
@@ -83,17 +83,33 @@ func (c *impl) Classify(ctx context.Context, group *core.ProcessGroup) <-chan *R
 		c.logger.Printf("开始对进程组 %s 执行分类。正在执行Perf Stat追踪", group.Id)
 		perfCh := perf.NewPerfStatRunner(group).Start(ctx)
 		perfResult := <-perfCh
+		errCount := 0
 		for i, pid := range group.Pid {
-			processResults[i] = &ProcessResult{
-				Pid:            pid,
-				Error:          nil,
-				Characteristic: MemoryCharacteristicToDetermine,
-				StatResult:     perfResult[pid],
-				MemTraceResult: nil,
+			perfProcessResult := perfResult[pid]
+			if perfProcessResult.Error != nil {
+				processResults[i] = &ProcessResult{
+					Pid:   pid,
+					Error: perfProcessResult.Error,
+				}
+			} else {
+				processResults[i] = &ProcessResult{
+					Pid:            pid,
+					Error:          nil,
+					Characteristic: MemoryCharacteristicToDetermine,
+					StatResult:     perfProcessResult,
+					MemTraceResult: nil,
+				}
+				if isBully(perfProcessResult) {
+					processResults[i].Characteristic = MemoryCharacteristicBully
+				}
 			}
-			if isBully(perfResult[pid]) {
-				processResults[i].Characteristic = MemoryCharacteristicBully
+		}
+		if errCount == len(group.Pid) {
+			resultCh <- &Result{
+				Group: group,
+				Error: fmt.Errorf("Perf Stat 进程组 %s 全部出错", group.Id),
 			}
+			return
 		}
 
 		c.logger.Printf("开始对进程组 %s 执行内存追踪", group.Id)
@@ -105,11 +121,27 @@ func (c *impl) Classify(ctx context.Context, group *core.ProcessGroup) <-chan *R
 			}
 		}
 		wg.Wait()
-		resultCh <- &Result{
-			Group:     group,
-			Error:     nil,
-			Processes: processResults,
+		errCount = 0
+		for _, result := range processResults {
+			if result.Error != nil {
+				errCount++
+			}
 		}
+		var finalResult *Result
+		if errCount == len(group.Pid) {
+			finalResult = &Result{
+				Group:     group,
+				Error:     fmt.Errorf("进程组 %s 分类全部出错", group.Id),
+				Processes: processResults,
+			}
+		} else {
+			finalResult = &Result{
+				Group:     group,
+				Error:     nil,
+				Processes: processResults,
+			}
+		}
+		resultCh <- finalResult
 
 		c.logger.Printf("进程组 %s 分类结束", group.Id)
 	}(group)
@@ -121,7 +153,9 @@ func (i *impl) classifyProcess(ctx context.Context, pid int, position []*Process
 	ch := i.memRecorder.RecordProcess(ctx, &pin.MemRecordAttachRequest{
 		MemRecordBaseRequest: pin.MemRecordBaseRequest{
 			Factory: func(tid int) algorithm.RTHCalculator {
-				return algorithm.ReservoirCalculator(i.reservoirSize)
+				// 暂时改为fulltrace获得最好效果
+				//return algorithm.ReservoirCalculator(i.reservoirSize)
+				return algorithm.FullTraceCalculator()
 			},
 			Name: fmt.Sprintf("%d", pid),
 		},
@@ -136,7 +170,7 @@ func (i *impl) classifyProcess(ctx context.Context, pid int, position []*Process
 	position[0].Characteristic = determineCharacteristic(position[0])
 }
 
-func isBully(stat *perf.PerfStatResult) bool {
+func isBully(stat *perf.StatResult) bool {
 	mpki := stat.MissPerKiloInstructions()
 	hpki := stat.HitPerKiloInstructions()
 	ipc := stat.InstructionPerCycle()
@@ -148,7 +182,7 @@ func isNonCritical(mrc []float32) bool {
 	return mrc[core.RootConfig.Algorithm.Classify.NonCriticalCacheSize] < 0.05
 }
 
-func isSquanderer(mrc []float32, stat *perf.PerfStatResult) bool {
+func isSquanderer(mrc []float32, stat *perf.StatResult) bool {
 	ipc := float64(stat.Instructions) / float64(stat.Cycles)
 	if ipc <= core.RootConfig.Algorithm.Classify.IPCLow || stat.LLCMissRate() > core.RootConfig.Algorithm.Classify.LLCMissRateHigh ||
 		stat.AccessLLCPerInstructions() >= core.RootConfig.Algorithm.Classify.LLCAPIHigh {
@@ -200,11 +234,11 @@ var _ Classifier = &impl{}
 
 // 给所有线程计算的加权平均MRC
 func WeightedAverageMRC(m *pin.MemRecordResult, maxRTH, cacheSize int) []float32 {
-	model := algorithm.NewAETModel(WeightedAverageRTH(m, maxRTH, cacheSize))
+	model := algorithm.NewAETModel(WeightedAverageRTH(m, maxRTH))
 	return model.MRC(cacheSize)
 }
 
-func WeightedAverageRTH(m *pin.MemRecordResult, maxRTH, cacheSize int) []int {
+func WeightedAverageRTH(m *pin.MemRecordResult, maxRTH int) []int {
 	averageRth := make([]int, maxRTH+2)
 	for tid, calculator := range m.ThreadTrace {
 		rth := calculator.GetRTH(maxRTH)

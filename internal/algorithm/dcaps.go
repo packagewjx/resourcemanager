@@ -14,7 +14,7 @@ import (
 type ProgramMetric struct {
 	Pid      int
 	MRC      []float32
-	PerfStat *perf.PerfStatResult
+	PerfStat *perf.StatResult
 }
 
 type predictSystemMetric struct {

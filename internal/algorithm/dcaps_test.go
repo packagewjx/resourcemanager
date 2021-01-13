@@ -177,7 +177,7 @@ func TestEstimateIPC(t *testing.T) {
 		program: &ProgramMetric{
 			Pid: 1,
 			MRC: nil,
-			PerfStat: &perf.PerfStatResult{
+			PerfStat: &perf.StatResult{
 				Pid:           1,
 				AllLoads:      10000,
 				AllStores:     10000,
@@ -201,7 +201,7 @@ func TestCalculateSystemMetric(t *testing.T) {
 			// 高性能程序
 			Pid: 1,
 			MRC: nil,
-			PerfStat: &perf.PerfStatResult{
+			PerfStat: &perf.StatResult{
 				AllLoads:     700,
 				AllStores:    300,
 				Cycles:       9000*0.5 + 1000*4,
@@ -212,7 +212,7 @@ func TestCalculateSystemMetric(t *testing.T) {
 			// 高IO程序
 			Pid: 2,
 			MRC: nil,
-			PerfStat: &perf.PerfStatResult{
+			PerfStat: &perf.StatResult{
 				AllLoads:     4500,
 				AllStores:    3500,
 				Cycles:       uint64(float32(2000*0.5 + 8000*30)),
@@ -223,7 +223,7 @@ func TestCalculateSystemMetric(t *testing.T) {
 			// 平均
 			Pid: 3,
 			MRC: nil,
-			PerfStat: &perf.PerfStatResult{
+			PerfStat: &perf.StatResult{
 				AllLoads:     1500,
 				AllStores:    1500,
 				Cycles:       7000*0.5 + 3000*10,

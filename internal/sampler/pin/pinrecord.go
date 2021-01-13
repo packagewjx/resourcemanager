@@ -7,6 +7,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
+	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/pkg/errors"
 	"io"
 	"log"
@@ -275,6 +276,7 @@ outerLoop:
 				Err:         err,
 			}
 			close(pinCtx.resCh)
+			<-m.controlChan
 			return
 		}
 	}
@@ -289,24 +291,32 @@ outerLoop:
 	}()
 }
 
+func (m *pinRecorder) recordPreparation(requestName string) (fifoPath, pinToolPath, iCountPath string, err error) {
+	fifoPath, err = mkTempFifo()
+	if err != nil {
+		return "", "", "", errors.Wrap(err, "创建管道失败")
+	}
+	fifoPath, _ = filepath.Abs(fifoPath)
+	pinToolPath, _ = filepath.Abs(m.toolPath)
+	iCountPath, _ = filepath.Abs(fmt.Sprintf("%s.icount.csv", requestName))
+	return
+}
+
 func (m *pinRecorder) RecordCommand(ctx context.Context, request *MemRecordRunRequest) <-chan *MemRecordResult {
 	resCh := make(chan *MemRecordResult, 1)
-	fifoPath, err := mkTempFifo()
+	fifoPath, pinToolPath, iCountPath, err := m.recordPreparation(request.Name)
 	if err != nil {
 		resCh <- &MemRecordResult{
-			ThreadTrace: nil,
-			Err:         errors.Wrap(err, "创建管道失败"),
+			Err: err,
 		}
 		close(resCh)
 		return resCh
 	}
-	pinToolPath, _ := filepath.Abs(m.toolPath)
-	iCountPath := fmt.Sprintf("%s.icount.csv", request.Name)
 	pinArgs := []string{"-t", pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize",
 		fmt.Sprintf("%d", m.bufferSize), "-stopat",
 		fmt.Sprintf("%d", m.traceCount), "-icountcsv", iCountPath, "--", request.Cmd}
 	pinArgs = append(pinArgs, request.Args...)
-	pinCmd := exec.Command("pin", pinArgs...)
+	pinCmd := exec.Command(core.RootConfig.MemTrace.PinPath, pinArgs...)
 	pinCtx := &pinContext{
 		name:       request.Name,
 		pinCmd:     pinCmd,
@@ -323,17 +333,15 @@ func (m *pinRecorder) RecordCommand(ctx context.Context, request *MemRecordRunRe
 
 func (m *pinRecorder) RecordProcess(ctx context.Context, request *MemRecordAttachRequest) <-chan *MemRecordResult {
 	resCh := make(chan *MemRecordResult, 1)
-	fifoPath, err := mkTempFifo()
+	fifoPath, pinToolPath, iCountPath, err := m.recordPreparation(request.Name)
 	if err != nil {
 		resCh <- &MemRecordResult{
-			ThreadTrace: nil,
-			Err:         errors.Wrap(err, "创建管道失败"),
+			Err: err,
 		}
+		close(resCh)
 		return resCh
 	}
-	pinToolPath, _ := filepath.Abs(m.toolPath)
-	iCountPath := fmt.Sprintf("%s.icount.csv", request.Name)
-	pinCmd := exec.Command("pin", "-pid", fmt.Sprintf("%d", request.Pid), "-t",
+	pinCmd := exec.Command(core.RootConfig.MemTrace.PinPath, "-pid", fmt.Sprintf("%d", request.Pid), "-t",
 		pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize", fmt.Sprintf("%d", m.bufferSize),
 		"-stopat", fmt.Sprintf("%d", m.traceCount), "-icountcsv", iCountPath)
 
