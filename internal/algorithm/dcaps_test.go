@@ -4,7 +4,15 @@ import (
 	"github.com/packagewjx/resourcemanager/internal/pqos"
 	"github.com/packagewjx/resourcemanager/internal/sampler/perf"
 	"github.com/stretchr/testify/assert"
+	"path/filepath"
+	"runtime"
 	"testing"
+)
+
+// from: https://stackoverflow.com/questions/31873396/is-it-possible-to-get-the-current-root-of-package-structure-as-a-string-in-golan
+var (
+	_, b, _, _ = runtime.Caller(0)
+	testDir    = filepath.Dir(b)
 )
 
 func TestCloneSchemes(t *testing.T) {

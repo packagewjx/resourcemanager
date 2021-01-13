@@ -18,8 +18,10 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/packagewjx/resourcemanager/internal/classifier"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
+	"github.com/packagewjx/resourcemanager/internal/utils"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"os"
@@ -72,4 +74,16 @@ func receiveResult(resCh <-chan *pin.MemRecordResult, cancelFunc context.CancelF
 		calculator.WriteAsCsv(core.RootConfig.MemTrace.MaxRthTime, outFile)
 		_ = outFile.Close()
 	}
+	// 输出加权平均MRC
+	numWays, numSets, _ := utils.GetL3Cap()
+	mrc := classifier.WeightedAverageMRC(m, core.RootConfig.MemTrace.MaxRthTime, numWays*numSets*2)
+	outFile, err := os.Create("sample_weighted_mrc.csv")
+	if err != nil {
+		fmt.Println("无法创建输出文件", err)
+		os.Exit(1)
+	}
+	for c, miss := range mrc {
+		_, _ = fmt.Fprintf(outFile, "%d,%.4f\n", c, miss)
+	}
+	_ = outFile.Close()
 }

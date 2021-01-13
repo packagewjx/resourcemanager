@@ -91,10 +91,7 @@ func (p *processWatcher) pollRoutine(ctx context.Context) {
 	logger := log.New(os.Stdout, "Process Watcher: ", log.LstdFlags|log.Lshortfile|log.Lmsgprefix)
 	logger.Println("进程监控者启动")
 	tick := time.Tick(p.tickTime)
-	set := &processUnionSet{
-		processMap: make(map[int]*processUnionSetEntry),
-		targetCmd:  p.targetCmd,
-	}
+	set := newProcessUnionSet(p.targetCmd)
 
 	for {
 		select {
@@ -129,60 +126,93 @@ func NewProcessWatcher(targetCmd []string, tickTime time.Duration) ProcessGroupW
 
 type processUnionSetEntry struct {
 	ps.Process
-	root   int
-	target bool
+	root int
 }
 
 type processUnionSet struct {
 	processMap map[int]*processUnionSetEntry
-	targetCmd  []string // 目标进程的指令，本进程集仅关注目标进程及其子进程
+	targetCmd  map[string]struct{} // 目标进程的指令，本进程集仅关注目标进程及其子进程
 }
 
-func (p *processUnionSet) isTargetProcess(process ps.Process) bool {
-	// FIXME 优化性能
-	for _, cmd := range p.targetCmd {
-		if process.Executable() == cmd {
-			return true
-		}
+func newProcessUnionSet(targetCmd []string) *processUnionSet {
+	cmdMap := make(map[string]struct{})
+	for _, s := range targetCmd {
+		cmdMap[s] = struct{}{}
 	}
-	return false
+	return &processUnionSet{
+		processMap: make(map[int]*processUnionSetEntry),
+		targetCmd:  cmdMap,
+	}
+}
+
+// 判断这个进程是否是目标的进程，目标进程包括根进程及其子进程，返回是否。若是，则同时返回根进程pid
+// rootProcesses用于缓存中间结果
+func (p *processUnionSet) inTargetProcessTree(process ps.Process, currentProcesses map[int]ps.Process, rootProcesses map[int]int) (bool, int) {
+	curr := process
+	rpid := 1
+	inTargetProcessTree := false
+	for curr != nil {
+		if currRootPid, ok := rootProcesses[curr.Pid()]; ok {
+			// 有中间结果，看情况更新 rpid 与 inTargetProcessTree
+			if inTargetProcessTree {
+				if currRootPid != 1 {
+					rpid = currRootPid
+				}
+			} else {
+				rpid = currRootPid
+				inTargetProcessTree = rpid != 1
+			}
+			break
+		} else if _, ok := p.targetCmd[curr.Executable()]; ok {
+			inTargetProcessTree = true
+			rpid = curr.Pid()
+		}
+		curr = currentProcesses[curr.PPid()]
+	}
+	rootProcesses[process.Pid()] = rpid
+	return inTargetProcessTree, rpid
+}
+
+// 判断属于这个新进程的pid，是否与保存的进程不是一个进程。因为进程号会复用
+func (p *processUnionSet) isProcessChanged(process ps.Process) bool {
+	storedProcess := p.processMap[process.Pid()]
+	return storedProcess == nil || storedProcess.PPid() != process.PPid() || storedProcess.Executable() != process.Executable()
 }
 
 func (p *processUnionSet) shouldSkip(process ps.Process) bool {
 	// 跳过条件：
 	// 1. 若父进程是init，并且不是我们关心的目标进程，则跳过
-
-	return (process.PPid() == 1 && !p.isTargetProcess(process))
+	_, ok := p.targetCmd[process.Executable()]
+	return process.Pid() == 1 || process.Pid() == 2 || ((process.PPid() == 1 || process.PPid() == 2) && !ok)
 }
 
 func (p *processUnionSet) update(processList []ps.Process) map[int]*core.ProcessGroup {
-	exist := make(map[int]struct{})
+	currentProcesses := make(map[int]ps.Process)
 	for _, process := range processList {
+		// 跳过一些不可能是目标进程及其子进程的进程
 		if p.shouldSkip(process) {
-			delete(p.processMap, process.Pid())
 			continue
 		}
+		currentProcesses[process.Pid()] = process
+	}
 
-		exist[process.Pid()] = struct{}{}
-		storedProcess := p.processMap[process.Pid()]
-		if storedProcess == nil || storedProcess.Executable() != process.Executable() || storedProcess.PPid() != process.PPid() {
-			ent := &processUnionSetEntry{
-				Process: process,
-			}
-			// 若是目标进程，其自身就是root，否则root初始化为其父亲
-			if p.isTargetProcess(process) {
-				ent.root = process.Pid()
-				ent.target = true
+	rootProcesses := make(map[int]int)
+	for _, process := range currentProcesses {
+		if p.isProcessChanged(process) {
+			if ok, rpid := p.inTargetProcessTree(process, currentProcesses, rootProcesses); ok {
+				p.processMap[process.Pid()] = &processUnionSetEntry{
+					Process: process,
+					root:    rpid,
+				}
 			} else {
-				ent.root = process.PPid()
+				delete(p.processMap, process.Pid())
 			}
-			p.processMap[process.Pid()] = ent
 		}
 	}
 
 	result := make(map[int]*core.ProcessGroup)
 	for _, ent := range p.processMap {
-		if _, ok := exist[ent.Pid()]; !ok {
+		if _, ok := currentProcesses[ent.Pid()]; !ok {
 			delete(p.processMap, ent.Pid())
 		} else {
 			rpid := p.findRoot(ent.Pid())

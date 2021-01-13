@@ -200,6 +200,11 @@ var _ Classifier = &impl{}
 
 // 给所有线程计算的加权平均MRC
 func WeightedAverageMRC(m *pin.MemRecordResult, maxRTH, cacheSize int) []float32 {
+	model := algorithm.NewAETModel(WeightedAverageRTH(m, maxRTH, cacheSize))
+	return model.MRC(cacheSize)
+}
+
+func WeightedAverageRTH(m *pin.MemRecordResult, maxRTH, cacheSize int) []int {
 	averageRth := make([]int, maxRTH+2)
 	for tid, calculator := range m.ThreadTrace {
 		rth := calculator.GetRTH(maxRTH)
@@ -208,6 +213,5 @@ func WeightedAverageMRC(m *pin.MemRecordResult, maxRTH, cacheSize int) []float32
 			averageRth[i] += int(float32(rth[i]) * weight)
 		}
 	}
-	model := algorithm.NewAETModel(averageRth)
-	return model.MRC(cacheSize)
+	return averageRth
 }

@@ -71,10 +71,7 @@ func TestProcessUnionSet(t *testing.T) {
 		},
 	}
 
-	set := &processUnionSet{
-		processMap: make(map[int]*processUnionSetEntry),
-		targetCmd:  []string{"noploop", "nginx"},
-	}
+	set := newProcessUnionSet([]string{"noploop", "nginx"})
 
 	family := set.update(processList)
 	assert.Equal(t, 2, len(family))
@@ -132,6 +129,53 @@ func TestProcessUnionSet(t *testing.T) {
 	group = family[10]
 	assert.NotNil(t, group)
 	assert.Equal(t, 2, len(group.Pid))
+
+	// 更新一次，此时noploop有同名子进程noploop
+	processList = []ps.Process{
+		myProcess{
+			pid:        1,
+			ppid:       1,
+			executable: "init",
+		},
+		myProcess{
+			pid:        2,
+			ppid:       1,
+			executable: "bash",
+		},
+		myProcess{
+			pid:        3,
+			ppid:       2,
+			executable: "top",
+		},
+		myProcess{
+			pid:        4,
+			ppid:       2,
+			executable: "noploop",
+		},
+		myProcess{
+			pid:        5,
+			ppid:       4,
+			executable: "noploop",
+		},
+		myProcess{
+			pid:        6,
+			ppid:       5,
+			executable: "noploop",
+		},
+		myProcess{
+			pid:        7,
+			ppid:       1,
+			executable: "noploop",
+		},
+	}
+	family = set.update(processList)
+	assert.Equal(t, 2, len(family))
+	group = family[4]
+	assert.NotNil(t, group)
+	assert.Equal(t, 3, len(group.Pid))
+	group = family[7]
+	assert.NotNil(t, group)
+	assert.Equal(t, 1, len(group.Pid))
 }
 
 func TestDiffFamily(t *testing.T) {
@@ -181,16 +225,35 @@ func TestDiffFamily(t *testing.T) {
 func TestWatcher(t *testing.T) {
 	go func() {
 		for i := 0; i < 3; i++ {
-			_ = exec.Command("sleep", "1").Run()
+			cmd := exec.Command("sleep", "0.3")
+			_ = cmd.Start()
+			t.Logf("启动Sleep 进程号：%d", cmd.Process.Pid)
+			_ = cmd.Wait()
+			t.Logf("Sleep进程 %d 结束", cmd.Process.Pid)
 		}
 	}()
-	watcher := NewProcessWatcher([]string{"sleep"}, 200*time.Millisecond)
+	watcher := NewProcessWatcher([]string{"sleep"}, 100*time.Millisecond)
 	ch := watcher.Watch()
 	for i := 0; i < 6; i++ {
+		var status *ProcessGroupStatus
+		select {
+		case status = <-ch:
+			t.Log(status)
+			assert.NotNil(t, status)
+			assert.NotNil(t, status.Group)
+		case <-time.After(3 * time.Second):
+			t.FailNow()
+		}
+	}
+	watcher.StopWatch(ch)
+}
+
+func TestParsecWatch(t *testing.T) {
+	watcher := NewProcessWatcher([]string{"ferret"}, 100*time.Millisecond)
+	ch := watcher.Watch()
+	for i := 0; i < 10; i++ {
 		status := <-ch
 		t.Log(status)
-		assert.NotNil(t, status)
-		assert.NotNil(t, status.Group)
 	}
 	watcher.StopWatch(ch)
 }
