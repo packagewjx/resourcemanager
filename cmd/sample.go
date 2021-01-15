@@ -18,6 +18,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/packagewjx/resourcemanager/internal/algorithm"
 	"github.com/packagewjx/resourcemanager/internal/classifier"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
@@ -71,7 +72,7 @@ func receiveResult(resCh <-chan *pin.MemRecordResult, cancelFunc context.CancelF
 			fmt.Println("无法创建输出文件", err)
 			os.Exit(1)
 		}
-		calculator.WriteAsCsv(core.RootConfig.MemTrace.MaxRthTime, outFile)
+		algorithm.WriteAsCsv(calculator.GetRTH(core.RootConfig.MemTrace.MaxRthTime), outFile)
 		_ = outFile.Close()
 	}
 	// 输出加权平均MRC

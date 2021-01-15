@@ -152,12 +152,8 @@ func (i *impl) classifyProcess(ctx context.Context, pid int, position []*Process
 	defer wg.Done()
 	ch := i.memRecorder.RecordProcess(ctx, &pin.MemRecordAttachRequest{
 		MemRecordBaseRequest: pin.MemRecordBaseRequest{
-			Factory: func(tid int) algorithm.RTHCalculator {
-				// 暂时改为fulltrace获得最好效果
-				//return algorithm.ReservoirCalculator(i.reservoirSize)
-				return algorithm.FullTraceCalculator()
-			},
-			Name: fmt.Sprintf("%d", pid),
+			Factory: pin.GetCalculatorFromRootConfig(),
+			Name:    fmt.Sprintf("%d", pid),
 		},
 		Pid: pid,
 	})

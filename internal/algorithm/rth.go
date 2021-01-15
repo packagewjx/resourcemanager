@@ -10,7 +10,6 @@ import (
 type RTHCalculator interface {
 	Update(traces []uint64)
 	GetRTH(maxTime int) []int
-	WriteAsCsv(maxTime int, writer io.Writer)
 }
 
 func ReservoirCalculator(reservoirSize int) RTHCalculator {
@@ -88,10 +87,6 @@ func (r *reservoirCalculator) GetRTH(maxTime int) []int {
 	return res
 }
 
-func (r *reservoirCalculator) WriteAsCsv(maxTime int, writer io.Writer) {
-	doWriteAsCsv(r.GetRTH(maxTime), writer)
-}
-
 func FullTraceCalculator() RTHCalculator {
 	return &fullTraceCalculator{
 		sample: map[uint64][]uint64{},
@@ -130,14 +125,25 @@ func (f *fullTraceCalculator) GetRTH(maxTime int) []int {
 	return res
 }
 
-func (f *fullTraceCalculator) WriteAsCsv(maxTime int, writer io.Writer) {
-	doWriteAsCsv(f.GetRTH(maxTime), writer)
-}
-
-func doWriteAsCsv(rth []int, writer io.Writer) {
+func WriteAsCsv(rth []int, writer io.Writer) {
 	bufWriter := bufio.NewWriter(writer)
 	for t, c := range rth {
 		_, _ = bufWriter.WriteString(fmt.Sprintf("%d,%d\n", t, c))
 	}
 	_ = bufWriter.Flush()
+}
+
+// 用于确认消费最快速率的Calculator
+type NoUpdateCalculator struct {
+}
+
+func (f NoUpdateCalculator) Update(_ []uint64) {
+}
+
+func (f NoUpdateCalculator) GetRTH(maxTime int) []int {
+	res := make([]int, maxTime+2)
+	for i := 0; i < len(res); i++ {
+		res[i] = 1
+	}
+	return res
 }

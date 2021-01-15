@@ -211,7 +211,7 @@ func (i *impl) writeResult() {
 			i.logger.Println("创建perfstat输出文件失败", err)
 			return
 		}
-		_, _ = perfStatCsv.WriteString("groupId,pid,instructions,cycles,allStores,allLoads,LLCMiss,LLCHit,MemAnyCycles,LLCMissCycles\n")
+		_, _ = perfStatCsv.WriteString("groupId,pid,instructions,cycles,allStores,allLoads,LLCMiss,LLCHit,MemAnyCycles,LLCMissCycles,characteristic\n")
 	} else {
 		perfStatCsv, err = os.OpenFile(name, os.O_WRONLY|os.O_APPEND, 0)
 		if err != nil {
@@ -233,10 +233,11 @@ func (i *impl) writeResult() {
 				_ = writer.Flush()
 				_ = mrcCsv.Close()
 			}
-			_, _ = perfStatCsv.WriteString(fmt.Sprintf("%s,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", group.group.Id,
+			_, _ = perfStatCsv.WriteString(fmt.Sprintf("%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s\n", group.group.Id,
 				characteristic.perfStat.Pid, characteristic.perfStat.Instructions, characteristic.perfStat.Cycles,
 				characteristic.perfStat.AllStores, characteristic.perfStat.AllLoads, characteristic.perfStat.LLCMiss,
-				characteristic.perfStat.LLCHit, characteristic.perfStat.MemAnyCycles, characteristic.perfStat.LLCMissCycles))
+				characteristic.perfStat.LLCHit, characteristic.perfStat.MemAnyCycles, characteristic.perfStat.LLCMissCycles,
+				characteristic.characteristic))
 		}
 		return true
 	})

@@ -17,7 +17,6 @@ package cmd
 
 import (
 	"context"
-	"github.com/packagewjx/resourcemanager/internal/algorithm"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
 	"github.com/pkg/errors"
@@ -51,10 +50,8 @@ var attachCmd = &cobra.Command{
 		ctx, cancel := context.WithCancel(context.Background())
 		resCh := memRecorder.RecordProcess(ctx, &pin.MemRecordAttachRequest{
 			MemRecordBaseRequest: pin.MemRecordBaseRequest{
-				Factory: func(tid int) algorithm.RTHCalculator {
-					return algorithm.ReservoirCalculator(100000)
-				},
-				Name: "sample",
+				Factory: pin.GetCalculatorFromRootConfig(),
+				Name:    "sample",
 			},
 			Pid: attachPid,
 		})

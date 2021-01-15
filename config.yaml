@@ -2,11 +2,12 @@ memtrace:
     tracecount: 500000000
     maxrthtime: 100000
     concurrentmax: 1
+    rthcalculatortype: noUpdate
+    reservoirsize: 100000
     pinpath: /home/wjx/bin/pin
     pintoolpath: /home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so
-    buffersize: 10000
-    writethreshold: 20000
-    reservoirsize: 100000
+    buffersize: 8000
+    writethreshold: 15000
 perfstat:
     sampletime: 10s
 algorithm:
@@ -41,3 +42,17 @@ manager:
     alloccooldown: 1m0s
     allocsquash: 50ms
     changeprocesscountthreshold: 100
+    targetprograms:
+      - blackscholes
+      - bodytrack
+      - canneal
+      - dedup
+      - facesim
+      - ferret
+      - fluidanimate
+      - freqmine
+      - rtview
+      - streamcluster
+      - swaptions
+      - vips
+      - x264

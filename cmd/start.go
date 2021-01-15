@@ -24,16 +24,13 @@ import (
 	"time"
 )
 
-var packages = []string{"blackscholes", "bodytrack", "canneal", "dedup", "facesim", "ferret", "fluidanimate", "freqmine",
-	"rtview", "streamcluster", "swaptions", "vips", "x264"}
-
 // startCmd represents the start command
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "启动管控系统",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		manager, err := resourcemanager.New(&resourcemanager.Config{
-			Watcher: watcher.NewProcessWatcher(packages, 200*time.Millisecond),
+			Watcher: watcher.NewProcessWatcher(core.RootConfig.Manager.TargetPrograms, 200*time.Millisecond),
 		})
 		if err != nil {
 			return err

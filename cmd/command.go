@@ -18,7 +18,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/packagewjx/resourcemanager/internal/algorithm"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
 	"github.com/spf13/cobra"
@@ -45,10 +44,8 @@ var commandCmd = &cobra.Command{
 		ctx, cancel := context.WithCancel(context.Background())
 		resCh := recorder.RecordCommand(ctx, &pin.MemRecordRunRequest{
 			MemRecordBaseRequest: pin.MemRecordBaseRequest{
-				Factory: func(tid int) algorithm.RTHCalculator {
-					return algorithm.ReservoirCalculator(core.RootConfig.MemTrace.ReservoirSize)
-				},
-				Name: "test",
+				Factory: pin.GetCalculatorFromRootConfig(),
+				Name:    "test",
 			},
 			Cmd:  args[0],
 			Args: args[1:],

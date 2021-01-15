@@ -21,11 +21,21 @@ type Config struct {
 	Manager    ManagerConfig
 }
 
+type RthCalculatorType string
+
+var (
+	RthCalculatorTypeReservoir RthCalculatorType = "reservoir"
+	RthCalculatorTypeFull      RthCalculatorType = "full"
+	RthCalculatorTypeNoUpdate  RthCalculatorType = "noUpdate"
+)
+
 type MemTraceConfig struct {
-	TraceCount    int
-	MaxRthTime    int
-	ConcurrentMax int
-	PinConfig     `mapstructure:",squash" yaml:",inline"`
+	TraceCount        int
+	MaxRthTime        int
+	ConcurrentMax     int
+	RthCalculatorType RthCalculatorType
+	ReservoirSize     int
+	PinConfig         `mapstructure:",squash" yaml:",inline"`
 }
 
 type PinConfig struct {
@@ -33,7 +43,6 @@ type PinConfig struct {
 	PinToolPath    string
 	BufferSize     int
 	WriteThreshold int
-	ReservoirSize  int
 }
 
 type PerfStatConfig struct {
@@ -82,19 +91,21 @@ type ManagerConfig struct {
 	AllocCoolDown               time.Duration // 再分配的冷却时间，避免频繁分配
 	AllocSquash                 time.Duration // 在这个时间段内，多个分配请求合并到一次完成
 	ChangeProcessCountThreshold int           // 多个进程组更新时，更新的进程的数量达到这个数字时才进行再分配
+	TargetPrograms              []string      // 当使用ProcessWatcher时，监控的目标程序
 }
 
 var RootConfig = &Config{
 	MemTrace: MemTraceConfig{
-		TraceCount:    1000000000,
-		MaxRthTime:    100000,
-		ConcurrentMax: int(math.Min(math.Max(1, float64(runtime.NumCPU())/4), 4)),
+		TraceCount:        1000000000,
+		MaxRthTime:        100000,
+		RthCalculatorType: RthCalculatorTypeReservoir,
+		ConcurrentMax:     int(math.Min(math.Max(1, float64(runtime.NumCPU())/4), 4)),
+		ReservoirSize:     100000,
 		PinConfig: PinConfig{
 			PinPath:        "/home/wjx/bin/pin",
 			PinToolPath:    "/home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so",
 			BufferSize:     10000,
 			WriteThreshold: 20000,
-			ReservoirSize:  100000,
 		},
 	},
 	PerfStat: PerfStatConfig{
@@ -130,6 +141,8 @@ var RootConfig = &Config{
 		AllocCoolDown:               60 * time.Second,
 		AllocSquash:                 50 * time.Millisecond,
 		ChangeProcessCountThreshold: 100, // 暂定
+		TargetPrograms: []string{"blackscholes", "bodytrack", "canneal", "dedup", "facesim", "ferret", "fluidanimate", "freqmine",
+			"rtview", "streamcluster", "swaptions", "vips", "x264"},
 	},
 }
 

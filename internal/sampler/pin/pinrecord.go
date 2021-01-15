@@ -54,6 +54,34 @@ type MemRecordResult struct {
 
 type RTHCalculatorFactory func(tid int) algorithm.RTHCalculator
 
+var (
+	factoryFullTrace RTHCalculatorFactory = func(tid int) algorithm.RTHCalculator {
+		return algorithm.FullTraceCalculator()
+	}
+	factoryReservoir RTHCalculatorFactory = func(tid int) algorithm.RTHCalculator {
+		return algorithm.ReservoirCalculator(core.RootConfig.MemTrace.ReservoirSize)
+	}
+	factoryNoUpdate RTHCalculatorFactory = func(tid int) algorithm.RTHCalculator {
+		return algorithm.NoUpdateCalculator{}
+	}
+)
+
+func GetCalculatorFromRootConfig() RTHCalculatorFactory {
+	var factory RTHCalculatorFactory
+	switch core.RootConfig.MemTrace.RthCalculatorType {
+	case core.RthCalculatorTypeFull:
+		factory = factoryFullTrace
+	case core.RthCalculatorTypeReservoir:
+		factory = factoryReservoir
+	case core.RthCalculatorTypeNoUpdate:
+		factory = factoryNoUpdate
+	default:
+		log.Printf("RTHCalculator值错误：%s，将使用FullTrace", core.RootConfig.MemTrace.RthCalculatorType)
+		factory = factoryFullTrace
+	}
+	return factory
+}
+
 type Config struct {
 	BufferSize     int
 	WriteThreshold int
