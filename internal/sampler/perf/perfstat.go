@@ -143,7 +143,10 @@ func (p *perfStatRunner) parseResult(out io.Reader) *StatResult {
 	if err != nil {
 		all, _ := ioutil.ReadAll(out)
 		fmt.Println(string(all))
-		panic(err)
+		return &StatResult{
+			Pid:   0,
+			Error: errors.Wrap(err, "解析Perf输出出错"),
+		}
 	}
 	for _, record := range statRecords {
 		cnt, err := strconv.ParseUint(record[0], 10, 64)

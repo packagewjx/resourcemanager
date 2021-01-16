@@ -1,7 +1,7 @@
 package watcher
 
 import (
-	"github.com/mitchellh/go-ps"
+	"github.com/keybase/go-ps"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/stretchr/testify/assert"
 	"os/exec"
@@ -13,6 +13,10 @@ type myProcess struct {
 	pid        int
 	ppid       int
 	executable string
+}
+
+func (m myProcess) Path() (string, error) {
+	panic("implement me")
 }
 
 func (m myProcess) Pid() int {

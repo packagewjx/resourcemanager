@@ -3,7 +3,7 @@ package watcher
 import (
 	"context"
 	"fmt"
-	"github.com/mitchellh/go-ps"
+	"github.com/keybase/go-ps"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 	"log"
