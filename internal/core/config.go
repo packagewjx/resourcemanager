@@ -29,6 +29,13 @@ var (
 	RthCalculatorTypeNoUpdate  RthCalculatorType = "noUpdate"
 )
 
+type MicroArchitectureName string
+
+var (
+	MicroArchitectureNameSkyLake     MicroArchitectureName = "SkyLake"
+	MicroArchitectureNameCascadeLake MicroArchitectureName = "CascadeLake"
+)
+
 type MemTraceConfig struct {
 	TraceCount        int
 	MaxRthTime        int
@@ -46,7 +53,8 @@ type PinConfig struct {
 }
 
 type PerfStatConfig struct {
-	SampleTime time.Duration
+	MicroArchitecture MicroArchitectureName
+	SampleTime        time.Duration
 }
 
 type ClassifyConfig struct {
@@ -110,7 +118,8 @@ var RootConfig = &Config{
 		},
 	},
 	PerfStat: PerfStatConfig{
-		SampleTime: 30 * time.Second,
+		SampleTime:        30 * time.Second,
+		MicroArchitecture: MicroArchitectureNameSkyLake,
 	},
 	Algorithm: AlgorithmConfig{
 		Classify: ClassifyConfig{
