@@ -21,6 +21,7 @@ import (
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
 	"github.com/spf13/cobra"
+	"os"
 )
 
 // commandCmd represents the command command
@@ -34,13 +35,17 @@ var commandCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		recorder := pin.NewMemRecorder(&pin.Config{
+		recorder, err := pin.NewMemRecorder(&pin.Config{
 			BufferSize:     core.RootConfig.MemTrace.BufferSize,
 			WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
 			PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
 			ConcurrentMax:  core.RootConfig.MemTrace.ConcurrentMax,
 			TraceCount:     core.RootConfig.MemTrace.TraceCount,
 		})
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		resCh := recorder.RecordCommand(ctx, &pin.MemRecordRunRequest{
 			MemRecordBaseRequest: pin.MemRecordBaseRequest{

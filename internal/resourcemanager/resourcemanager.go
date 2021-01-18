@@ -9,11 +9,13 @@ import (
 	"github.com/packagewjx/resourcemanager/internal/resourcemanager/watcher"
 	"github.com/packagewjx/resourcemanager/internal/sampler/perf"
 	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
+	"github.com/pkg/errors"
 	"log"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 )
 
 type ResourceManager interface {
@@ -96,17 +98,21 @@ type impl struct {
 var _ ResourceManager = &impl{}
 
 func New(config *Config) (ResourceManager, error) {
+	c, err := classifier.New(&classifier.Config{
+		MemTraceConfig: &pin.Config{
+			BufferSize:     core.RootConfig.MemTrace.BufferSize,
+			WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
+			PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
+			TraceCount:     core.RootConfig.MemTrace.TraceCount,
+			ConcurrentMax:  core.RootConfig.MemTrace.ConcurrentMax,
+		},
+		ReservoirSize: core.RootConfig.MemTrace.ReservoirSize,
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "创建分类器出错")
+	}
 	r := &impl{
-		classifier: classifier.New(&classifier.Config{
-			MemTraceConfig: &pin.Config{
-				BufferSize:     core.RootConfig.MemTrace.BufferSize,
-				WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
-				PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
-				TraceCount:     core.RootConfig.MemTrace.TraceCount,
-				ConcurrentMax:  core.RootConfig.MemTrace.ConcurrentMax,
-			},
-			ReservoirSize: core.RootConfig.MemTrace.ReservoirSize,
-		}),
+		classifier:    c,
 		watcher:       config.Watcher,
 		processGroups: (*processGroupMap)(&sync.Map{}),
 		logger:        log.New(os.Stdout, "ResourceManager: ", log.LstdFlags|log.Lshortfile|log.Lmsgprefix),
@@ -250,6 +256,14 @@ func (i *impl) classifyRoutine(ctx context.Context, groupContext *processGroupCo
 		i.wg.Done()
 		groupContext.cancelManageFunc = nil
 	}()
+	i.logger.Printf("等待 %s 后对 %s 进程组进行分类", core.RootConfig.Manager.ClassifyAfter.String(), groupContext.group.Id)
+	select {
+	case <-time.After(core.RootConfig.Manager.ClassifyAfter):
+	case <-ctx.Done():
+		i.logger.Println("等待时分类过程被结束")
+		return
+	}
+
 	groupContext.state = processGroupStateClassifying
 	ch := i.classifier.Classify(ctx, groupContext.group)
 	i.logger.Printf("对进程组 %s 进行分类", groupContext.group.Id)

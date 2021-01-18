@@ -87,12 +87,16 @@ func (p *StatResult) InstructionPerCycle() float64 {
 	return float64(p.Instructions) / float64(p.Cycles)
 }
 
-func (p *StatResult) MissPerKiloInstructions() float64 {
+func (p *StatResult) LLCMissPerKiloInstructions() float64 {
 	return float64(p.LLCMiss) / float64(p.Instructions) * 1000
 }
 
 func (p *StatResult) HitPerKiloInstructions() float64 {
 	return float64(p.AllStores+p.AllLoads-p.LLCMiss) / float64(p.Instructions) * 1000
+}
+
+func (p *StatResult) LLCHitPerKiloInstructions() float64 {
+	return float64(p.LLCHit) / float64(p.Instructions) * 1000
 }
 
 // 不访问内存的指令的CPI
@@ -200,7 +204,9 @@ func (p *perfStatRunner) Start(ctx context.Context) <-chan map[int]*StatResult {
 	go func() {
 		select {
 		case <-time.After(core.RootConfig.PerfStat.SampleTime):
+			p.logger.Printf("对进程组 %s 的监控结束", p.group.Id)
 		case <-ctx.Done():
+			p.logger.Printf("对进程组 %s 的监控中途被结束", p.group.Id)
 		}
 		for _, command := range commands {
 			_ = syscall.Kill(command.Process.Pid, syscall.SIGINT)

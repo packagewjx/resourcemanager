@@ -2,10 +2,17 @@ package classifier
 
 import (
 	"context"
+	"encoding/csv"
+	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/core"
+	"github.com/packagewjx/resourcemanager/internal/sampler/perf"
 	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 	"github.com/stretchr/testify/assert"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -14,7 +21,7 @@ import (
 func TestClassifier(t *testing.T) {
 	core.RootConfig.PerfStat.SampleTime = 2 * time.Second
 	pid := utils.ForkRunExample(1)
-	classifier := New(&Config{
+	classifier, err := New(&Config{
 		MemTraceConfig: &pin.Config{
 			BufferSize:     core.RootConfig.MemTrace.BufferSize,
 			WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
@@ -24,6 +31,7 @@ func TestClassifier(t *testing.T) {
 		},
 		ReservoirSize: core.RootConfig.MemTrace.ReservoirSize,
 	})
+	assert.NoError(t, err)
 	t.Log("正在执行第一个测试用例")
 	ch := classifier.Classify(context.Background(), &core.ProcessGroup{
 		Id:  "test",

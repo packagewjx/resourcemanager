@@ -8,6 +8,7 @@ import (
 	"github.com/packagewjx/resourcemanager/internal/sampler/perf"
 	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
 	"github.com/packagewjx/resourcemanager/internal/utils"
+	"github.com/pkg/errors"
 	"log"
 	"os"
 	"sync"
@@ -59,17 +60,28 @@ type Classifier interface {
 	Classify(ctx context.Context, group *core.ProcessGroup) <-chan *Result
 }
 
-func New(config *Config) Classifier {
+func New(config *Config) (Classifier, error) {
+	recorder, err := pin.NewMemRecorder(config.MemTraceConfig)
+	if err != nil {
+		return nil, errors.Wrap(err, "创建PinRecorder出错")
+	}
 	return &impl{
 		logger:        log.New(os.Stdout, fmt.Sprintf("Classifier: "), log.Lmsgprefix|log.LstdFlags|log.Lshortfile),
-		memRecorder:   pin.NewMemRecorder(config.MemTraceConfig),
+		memRecorder:   recorder,
 		reservoirSize: config.ReservoirSize,
-	}
+		mpkiStat: &metricStat{
+			data: []float64{},
+			sum:  0,
+			avg:  0,
+			std:  0,
+		},
+	}, nil
 }
 
 type impl struct {
 	memRecorder   pin.MemRecorder
 	reservoirSize int
+	mpkiStat      *metricStat
 	logger        *log.Logger
 }
 
@@ -99,7 +111,7 @@ func (c *impl) Classify(ctx context.Context, group *core.ProcessGroup) <-chan *R
 					StatResult:     perfProcessResult,
 					MemTraceResult: nil,
 				}
-				if isBully(perfProcessResult) {
+				if c.isBully(perfProcessResult) {
 					processResults[i].Characteristic = MemoryCharacteristicBully
 				}
 			}
@@ -124,6 +136,7 @@ func (c *impl) Classify(ctx context.Context, group *core.ProcessGroup) <-chan *R
 		errCount = 0
 		for _, result := range processResults {
 			if result.Error != nil {
+				c.logger.Printf("进程组 %s 进程 %d 分类出错: %v", group.Id, result.Pid, result.Error)
 				errCount++
 			}
 		}
@@ -163,22 +176,23 @@ func (i *impl) classifyProcess(ctx context.Context, pid int, position []*Process
 		return
 	}
 	position[0].MemTraceResult = result
-	position[0].Characteristic = determineCharacteristic(position[0])
+	position[0].Characteristic = i.determineCharacteristic(position[0])
 }
 
-func isBully(stat *perf.StatResult) bool {
-	mpki := stat.MissPerKiloInstructions()
-	hpki := stat.HitPerKiloInstructions()
+func (i *impl) isBully(stat *perf.StatResult) bool {
+	mpki := stat.LLCMissPerKiloInstructions()
+	i.mpkiStat.addData(mpki)
+	hpki := stat.LLCHitPerKiloInstructions()
 	ipc := stat.InstructionPerCycle()
-	return mpki >= core.RootConfig.Algorithm.Classify.MPKIVeryHigh && hpki >= core.RootConfig.Algorithm.Classify.HPKIVeryHigh &&
+	return i.mpkiStat.dataLevel(mpki) == dataLevelVeryHigh && hpki >= core.RootConfig.Algorithm.Classify.HPKIVeryHigh &&
 		ipc <= core.RootConfig.Algorithm.Classify.IPCVeryLow
 }
 
-func isNonCritical(mrc []float32) bool {
+func (i *impl) isNonCritical(mrc []float32) bool {
 	return mrc[core.RootConfig.Algorithm.Classify.NonCriticalCacheSize] < 0.05
 }
 
-func isSquanderer(mrc []float32, stat *perf.StatResult) bool {
+func (i *impl) isSquanderer(mrc []float32, stat *perf.StatResult) bool {
 	ipc := float64(stat.Instructions) / float64(stat.Cycles)
 	if ipc <= core.RootConfig.Algorithm.Classify.IPCLow || stat.LLCMissRate() > core.RootConfig.Algorithm.Classify.LLCMissRateHigh ||
 		stat.AccessLLCPerInstructions() >= core.RootConfig.Algorithm.Classify.LLCAPIHigh {
@@ -207,19 +221,19 @@ func isSquanderer(mrc []float32, stat *perf.StatResult) bool {
 	return false
 }
 
-func isMedium(mrc []float32) bool {
+func (i *impl) isMedium(mrc []float32) bool {
 	return mrc[core.RootConfig.Algorithm.Classify.MediumCacheSize] < 0.05
 }
 
-func determineCharacteristic(p *ProcessResult) MemoryCharacteristic {
+func (i *impl) determineCharacteristic(p *ProcessResult) MemoryCharacteristic {
 	// 使用平均RTH判断
 	mrc := WeightedAverageMRC(p.MemTraceResult, core.RootConfig.MemTrace.MaxRthTime, L3Size*2)
 	p.WeightedAverageMRC = mrc
-	if isNonCritical(mrc) {
+	if i.isNonCritical(mrc) {
 		return MemoryCharacteristicNonCritical
-	} else if isSquanderer(mrc, p.StatResult) {
+	} else if i.isSquanderer(mrc, p.StatResult) {
 		return MemoryCharacteristicSquanderer
-	} else if isMedium(mrc) {
+	} else if i.isMedium(mrc) {
 		return MemoryCharacteristicMedium
 	} else {
 		return MemoryCharacteristicSensitive

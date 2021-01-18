@@ -92,6 +92,7 @@ type ManagerConfig struct {
 	AllocSquash                 time.Duration // 在这个时间段内，多个分配请求合并到一次完成
 	ChangeProcessCountThreshold int           // 多个进程组更新时，更新的进程的数量达到这个数字时才进行再分配
 	TargetPrograms              []string      // 当使用ProcessWatcher时，监控的目标程序
+	ClassifyAfter               time.Duration // 跳过应用启动的的初始化时间
 }
 
 var RootConfig = &Config{
@@ -109,7 +110,7 @@ var RootConfig = &Config{
 		},
 	},
 	PerfStat: PerfStatConfig{
-		SampleTime: 10 * time.Second,
+		SampleTime: 30 * time.Second,
 	},
 	Algorithm: AlgorithmConfig{
 		Classify: ClassifyConfig{
@@ -143,6 +144,7 @@ var RootConfig = &Config{
 		ChangeProcessCountThreshold: 100, // 暂定
 		TargetPrograms: []string{"blackscholes", "bodytrack", "canneal", "dedup", "facesim", "ferret", "fluidanimate", "freqmine",
 			"rtview", "streamcluster", "swaptions", "vips", "x264"},
+		ClassifyAfter: 5 * time.Second,
 	},
 }
 

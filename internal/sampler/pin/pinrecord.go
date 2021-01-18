@@ -10,6 +10,7 @@ import (
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/pkg/errors"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -112,7 +113,26 @@ type pinContext struct {
 	iCountPath string
 }
 
-func NewMemRecorder(config *Config) MemRecorder {
+func checkKernelConfig() error {
+	file, err := ioutil.ReadFile("/proc/sys/kernel/yama/ptrace_scope")
+	if err != nil {
+		return errors.Wrap(err, "读取系统配置出错")
+	}
+	if string(file) != "0\n" {
+		err = ioutil.WriteFile("/proc/sys/kernel/yama/ptrace_scope", []byte{'0', '\n'}, 0644)
+		if err != nil {
+			return errors.Wrap(err, "写入系统配置出错")
+		}
+	}
+	return nil
+}
+
+func NewMemRecorder(config *Config) (MemRecorder, error) {
+	err := checkKernelConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	return &pinRecorder{
 		traceCount:     config.TraceCount,
 		toolPath:       config.PinToolPath,
@@ -120,7 +140,7 @@ func NewMemRecorder(config *Config) MemRecorder {
 		writeThreshold: config.WriteThreshold,
 		logger:         log.New(os.Stdout, "PinRecorder: ", log.LstdFlags|log.Lmsgprefix|log.Lshortfile),
 		controlChan:    make(chan struct{}, config.ConcurrentMax),
-	}
+	}, nil
 }
 
 type pinRecorder struct {
@@ -146,6 +166,17 @@ func (m *pinRecorder) pinTraceReader(ctx context.Context, pinCtx *pinContext, ca
 		_ = os.Remove(pinCtx.iCountPath)
 		close(pinCtx.resCh)
 	}()
+
+	// 为了避免OpenFile阻塞或者读取不到任何内容，进入之前先进行判断是否已经结束
+	select {
+	case <-ctx.Done():
+		m.logger.Printf("%s 采集未开始即结束", pinCtx.name)
+		pinCtx.resCh <- &MemRecordResult{
+			Err: fmt.Errorf("采集未开始就结束"),
+		}
+		return
+	default:
+	}
 
 	fin, err := os.OpenFile(pinCtx.fifoPath, os.O_RDONLY, os.ModeNamedPipe)
 	if err != nil {
@@ -218,6 +249,14 @@ outerLoop:
 		fmt.Println("读取异常结束", err)
 	}
 
+	// 判断是否没有读取到任何数据，返回错误
+	if len(addrListMap) == 0 {
+		pinCtx.resCh <- &MemRecordResult{
+			Err: fmt.Errorf("对进程组的内存追踪没有结果"),
+		}
+		return
+	}
+
 	// 读取指标数量文件用于加权平均
 	counts, err := readInstructionCounts(pinCtx.iCountPath)
 	totalCount := uint64(0)
@@ -261,13 +300,21 @@ func (m *pinRecorder) pinCmdRunner(pinCmd *exec.Cmd, errCh chan<- error) {
 	}
 }
 
-func (m *pinRecorder) reporter(ctx context.Context, pinCtx *pinContext) {
+func (m *pinRecorder) reporter(ctx context.Context, pinCtx *pinContext, cancelFunc context.CancelFunc) {
 	cnt := uint(0)
+	secondElapsed := 0
 	for {
 		select {
 		case <-time.After(time.Second):
 			m.logger.Printf("%s 采集速度： %10d/s 已采集： %d\n", pinCtx.name, pinCtx.readCnt-cnt, pinCtx.readCnt)
 			cnt = pinCtx.readCnt
+			if secondElapsed > 10 && cnt == 0 {
+				// 如果超过10秒还是没有，应该错误
+				m.logger.Printf("超过10秒没有采集到数据，中途结束")
+				cancelFunc()
+				return
+			}
+			secondElapsed++
 		case <-ctx.Done():
 			return
 		}
@@ -312,7 +359,7 @@ outerLoop:
 	childCtx, cancel := context.WithCancel(ctx)
 	m.logger.Printf("%s: 采集开始", pinCtx.name)
 	go m.pinTraceReader(childCtx, pinCtx, cancel)
-	go m.reporter(childCtx, pinCtx)
+	go m.reporter(childCtx, pinCtx, cancel)
 	go func() {
 		<-childCtx.Done()
 		<-m.controlChan
