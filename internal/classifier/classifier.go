@@ -3,15 +3,13 @@ package classifier
 import (
 	"context"
 	"fmt"
-	"github.com/packagewjx/resourcemanager/internal/algorithm"
 	"github.com/packagewjx/resourcemanager/internal/core"
+	"github.com/packagewjx/resourcemanager/internal/pqos"
 	"github.com/packagewjx/resourcemanager/internal/sampler/perf"
-	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
-	"github.com/packagewjx/resourcemanager/internal/utils"
 	"github.com/pkg/errors"
 	"log"
+	"math"
 	"os"
-	"sync"
 )
 
 type MemoryCharacteristic string
@@ -25,19 +23,7 @@ var (
 	MemoryCharacteristicSensitive   MemoryCharacteristic = "sensitive"
 )
 
-var L3Size int
-
-func init() {
-	ways, sets, _ := utils.GetL3Cap()
-	L3Size = ways * sets
-}
-
-type FinishFunc func(group *core.ProcessGroup, characteristic MemoryCharacteristic, perfStat *perf.StatResult, rth []int)
-type ErrorFunc func(group *core.ProcessGroup, err error)
-
 type Config struct {
-	MemTraceConfig *pin.Config
-	ReservoirSize  int
 }
 
 type Result struct {
@@ -47,12 +33,11 @@ type Result struct {
 }
 
 type ProcessResult struct {
-	Pid                int
-	Error              error
-	Characteristic     MemoryCharacteristic
-	StatResult         *perf.StatResult
-	MemTraceResult     *pin.MemRecordResult
-	WeightedAverageMRC []float32 // 加权平均MRC，权值为指令数量占比
+	Pid               int
+	Error             error
+	Characteristic    MemoryCharacteristic
+	StatResultAllWays *perf.StatResult
+	StatResultTwoWays *perf.StatResult
 }
 
 type Classifier interface {
@@ -60,15 +45,9 @@ type Classifier interface {
 	Classify(ctx context.Context, group *core.ProcessGroup) <-chan *Result
 }
 
-func New(config *Config) (Classifier, error) {
-	recorder, err := pin.NewMemRecorder(config.MemTraceConfig)
-	if err != nil {
-		return nil, errors.Wrap(err, "创建PinRecorder出错")
-	}
+func New(_ *Config) (Classifier, error) {
 	return &impl{
-		logger:        log.New(os.Stdout, fmt.Sprintf("Classifier: "), log.Lmsgprefix|log.LstdFlags|log.Lshortfile),
-		memRecorder:   recorder,
-		reservoirSize: config.ReservoirSize,
+		logger: log.New(os.Stdout, fmt.Sprintf("Classifier: "), log.Lmsgprefix|log.LstdFlags|log.Lshortfile),
 		mpkiStat: &metricStat{
 			data: []float64{},
 			sum:  0,
@@ -79,7 +58,6 @@ func New(config *Config) (Classifier, error) {
 }
 
 type impl struct {
-	memRecorder   pin.MemRecorder
 	reservoirSize int
 	mpkiStat      *metricStat
 	logger        *log.Logger
@@ -91,171 +69,135 @@ func (c *impl) Classify(ctx context.Context, group *core.ProcessGroup) <-chan *R
 	resultCh := make(chan *Result, 1)
 	go func(group *core.ProcessGroup) {
 		defer close(resultCh)
-		processResults := make([]*ProcessResult, len(group.Pid))
-		c.logger.Printf("开始对进程组 %s 执行分类。正在执行Perf Stat追踪", group.Id)
-		perfCh := perf.NewPerfStatRunner(group).Start(ctx)
-		perfResult := <-perfCh
+		c.logger.Printf("开始对进程组 %s 执行分类", group.Id)
+		processResults := c.perfProcesses(ctx, group)
 		errCount := 0
-		for i, pid := range group.Pid {
-			perfProcessResult := perfResult[pid]
-			if perfProcessResult.Error != nil {
-				processResults[i] = &ProcessResult{
-					Pid:   pid,
-					Error: perfProcessResult.Error,
-				}
-			} else {
-				processResults[i] = &ProcessResult{
-					Pid:            pid,
-					Error:          nil,
-					Characteristic: MemoryCharacteristicToDetermine,
-					StatResult:     perfProcessResult,
-					MemTraceResult: nil,
-				}
-				if c.isBully(perfProcessResult) {
-					processResults[i].Characteristic = MemoryCharacteristicBully
-				}
-			}
-		}
-		if errCount == len(group.Pid) {
-			resultCh <- &Result{
-				Group: group,
-				Error: fmt.Errorf("Perf Stat 进程组 %s 全部出错", group.Id),
-			}
-			return
-		}
-
-		c.logger.Printf("开始对进程组 %s 执行内存追踪", group.Id)
-		wg := sync.WaitGroup{}
-		for i := 0; i < len(processResults); i++ {
-			if processResults[i].Characteristic == MemoryCharacteristicToDetermine {
-				wg.Add(1)
-				go c.classifyProcess(ctx, group.Pid[i], processResults[i:i+1], &wg)
-			}
-		}
-		wg.Wait()
-		errCount = 0
 		for _, result := range processResults {
-			if result.Error != nil {
-				c.logger.Printf("进程组 %s 进程 %d 分类出错: %v", group.Id, result.Pid, result.Error)
+			if result.Error == nil {
+				result.Characteristic = c.determineCharacteristic(result)
+			} else {
+				c.logger.Printf("进程组 %s 进程 %d 分类出错：%v", group.Id, result.Pid, result.Error)
 				errCount++
 			}
 		}
-		var finalResult *Result
-		if errCount == len(group.Pid) {
-			finalResult = &Result{
-				Group:     group,
-				Error:     fmt.Errorf("进程组 %s 分类全部出错", group.Id),
-				Processes: processResults,
-			}
-		} else {
-			finalResult = &Result{
-				Group:     group,
-				Error:     nil,
-				Processes: processResults,
-			}
+		res := &Result{
+			Group:     group,
+			Processes: processResults,
 		}
-		resultCh <- finalResult
-
+		if errCount == len(processResults) {
+			res.Error = fmt.Errorf("采样全部出现错误")
+		}
 		c.logger.Printf("进程组 %s 分类结束", group.Id)
+		resultCh <- res
 	}(group)
 	return resultCh
 }
 
-func (i *impl) classifyProcess(ctx context.Context, pid int, position []*ProcessResult, wg *sync.WaitGroup) {
-	defer wg.Done()
-	ch := i.memRecorder.RecordProcess(ctx, &pin.MemRecordAttachRequest{
-		MemRecordBaseRequest: pin.MemRecordBaseRequest{
-			Factory: pin.GetCalculatorFromRootConfig(),
-			Name:    fmt.Sprintf("%d", pid),
+func (c *impl) perfProcesses(ctx context.Context, group *core.ProcessGroup) []*ProcessResult {
+	// 首先在全缓存way时测试一次
+	processResults := make([]*ProcessResult, len(group.Pid))
+	for i := 0; i < len(processResults); i++ {
+		processResults[i] = &ProcessResult{
+			Pid:            group.Pid[i],
+			Characteristic: MemoryCharacteristicToDetermine,
+		}
+	}
+
+	c.logger.Printf("正在对进程组 %s 进行缓存way为2的perf stat", group.Id)
+	err := pqos.SetCLOSScheme([]*pqos.CLOSScheme{
+		{
+			CLOSNum:     1,
+			WayBit:      0x3,
+			MemThrottle: 0,
+			Processes:   group.Pid,
 		},
-		Pid: pid,
 	})
-	result := <-ch
-	if result.Err != nil {
-		position[0].Error = result.Err
-		return
-	}
-	position[0].MemTraceResult = result
-	position[0].Characteristic = i.determineCharacteristic(position[0])
-}
-
-func (i *impl) isBully(stat *perf.StatResult) bool {
-	mpki := stat.LLCMissPerKiloInstructions()
-	i.mpkiStat.addData(mpki)
-	hpki := stat.LLCHitPerKiloInstructions()
-	ipc := stat.InstructionPerCycle()
-	return i.mpkiStat.dataLevel(mpki) == dataLevelVeryHigh && hpki >= core.RootConfig.Algorithm.Classify.HPKIVeryHigh &&
-		ipc <= core.RootConfig.Algorithm.Classify.IPCVeryLow
-}
-
-func (i *impl) isNonCritical(mrc []float32) bool {
-	return mrc[core.RootConfig.Algorithm.Classify.NonCriticalCacheSize] < 0.05
-}
-
-func (i *impl) isSquanderer(mrc []float32, stat *perf.StatResult) bool {
-	ipc := float64(stat.Instructions) / float64(stat.Cycles)
-	if ipc <= core.RootConfig.Algorithm.Classify.IPCLow || stat.LLCMissRate() > core.RootConfig.Algorithm.Classify.LLCMissRateHigh ||
-		stat.AccessLLCPerInstructions() >= core.RootConfig.Algorithm.Classify.LLCAPIHigh {
-		// MRC必然是单调递减的。因此分成多个区间，每个区间查看其斜率，找到斜率低于阈值的位置。阈值通常是取值为加大缓存空间收益小的位置。
-		const intervalCount = 1000
-		const slopeThreshold = 1.0 / intervalCount
-		targetPosition := -1
-		stepSize := len(mrc) / intervalCount
-		idx := 0
-		// i到intervalCount-1是没有必要再检查最后一个区间了，不仅要加入判断逻辑，还没有多大意义
-		for i := 0; i < intervalCount-1; i++ {
-			slope := float64(mrc[idx]-mrc[idx+stepSize]) / float64(stepSize)
-			if slope < slopeThreshold {
-				targetPosition = idx
-				break
-			}
-			idx += stepSize
+	if err != nil {
+		for _, result := range processResults {
+			result.Error = errors.Wrap(err, "无法设置缓存")
 		}
-		if targetPosition == -1 {
-			// 这个情况应该保证很少发生
-			return false
-		}
-		// 若MissRate基本不变化时依旧很高，就认为是Squanderer
-		return float64(mrc[targetPosition]) > core.RootConfig.Algorithm.Classify.MRCLowest
+		return processResults
 	}
-	return false
+	perfCh := perf.NewPerfStatRunner(group).Start(ctx)
+	perfResult := <-perfCh
+	for i, pid := range group.Pid {
+		perfProcessResult := perfResult[pid]
+		if perfProcessResult.Error != nil {
+			processResults[i].Error = perfProcessResult.Error
+		} else {
+			processResults[i].StatResultTwoWays = perfProcessResult
+		}
+	}
+
+	c.logger.Printf("正在对进程组 %s 进行全缓存way perf stat", group.Id)
+	_ = pqos.SetCLOSScheme([]*pqos.CLOSScheme{
+		{
+			CLOSNum:   0,
+			Processes: group.Pid,
+		},
+	})
+	perfCh = perf.NewPerfStatRunner(group).Start(ctx)
+	perfResult = <-perfCh
+	for i, pid := range group.Pid {
+		perfProcessResult := perfResult[pid]
+		if perfProcessResult.Error != nil {
+			processResults[i].Error = perfProcessResult.Error
+		} else {
+			processResults[i].StatResultAllWays = perfProcessResult
+		}
+	}
+	return processResults
 }
 
-func (i *impl) isMedium(mrc []float32) bool {
-	return mrc[core.RootConfig.Algorithm.Classify.MediumCacheSize] < 0.05
-}
+func (c *impl) determineCharacteristic(p *ProcessResult) MemoryCharacteristic {
+	all := p.StatResultAllWays
+	two := p.StatResultTwoWays
+	config := core.RootConfig.Algorithm.Classify
+	bully := func() bool {
+		// 与论文一致
+		ipcVeryLow := all.InstructionPerCycle() < config.IPCVeryLow || two.InstructionPerCycle() < config.IPCVeryLow
+		allHigh := all.LLCMissPerKiloInstructions() >= config.MPKIVeryHigh && all.LLCHitPerKiloInstructions() >= config.HPKIVeryHigh
+		twoHigh := two.LLCMissPerKiloInstructions() >= config.MPKIVeryHigh && two.LLCHitPerKiloInstructions() >= config.HPKIVeryHigh
+		return ipcVeryLow && allHigh || twoHigh
+	}
+	squanderer := func() bool {
+		// 与论文一致
+		return (all.LLCHitPerKiloInstructions() >= config.HPKIVeryHigh && all.LLCMissPerKiloInstructions() >= config.MPKIHigh) ||
+			(two.LLCHitPerKiloInstructions() >= config.HPKIVeryHigh && two.LLCMissPerKiloInstructions() >= config.MPKIHigh)
+	}
+	medium := func() bool {
+		ipcMedium := all.InstructionPerCycle() >= config.IPCLow
+		missRateDownSignificant := (two.LLCMissRate()-all.LLCMissRate())/two.LLCMissRate() > config.SignificantChangeThreshold
+		ipcUp := (all.InstructionPerCycle()-two.InstructionPerCycle())/two.InstructionPerCycle() >= config.NoChangeThreshold
+		return ipcMedium && missRateDownSignificant || ipcUp
+	}
+	sensitive := func() bool {
+		ipcLow := all.InstructionPerCycle() < config.IPCLow
+		missRateDownSignificant := (two.LLCMissRate()-all.LLCMissRate())/two.LLCMissRate() > config.SignificantChangeThreshold
+		ipcUp := (all.InstructionPerCycle()-two.InstructionPerCycle())/two.InstructionPerCycle() >= config.NoChangeThreshold
+		return ipcLow && missRateDownSignificant || ipcUp
+	}
+	nonCritical := func() bool {
+		// APKI小于1，IPC基本不变
+		apkiLow := all.AccessLLCPerInstructions()*1000.0 < config.APKILow || two.AccessLLCPerInstructions()*1000.0 < config.APKILow
+		ipcNonChange := math.Abs(all.InstructionPerCycle()-two.InstructionPerCycle())/all.InstructionPerCycle() < config.NoChangeThreshold
+		return apkiLow && ipcNonChange
+	}
 
-func (i *impl) determineCharacteristic(p *ProcessResult) MemoryCharacteristic {
-	// 使用平均RTH判断
-	mrc := WeightedAverageMRC(p.MemTraceResult, core.RootConfig.MemTrace.MaxRthTime, L3Size*2)
-	p.WeightedAverageMRC = mrc
-	if i.isNonCritical(mrc) {
-		return MemoryCharacteristicNonCritical
-	} else if i.isSquanderer(mrc, p.StatResult) {
+	if bully() {
+		return MemoryCharacteristicBully
+	} else if squanderer() {
 		return MemoryCharacteristicSquanderer
-	} else if i.isMedium(mrc) {
+	} else if nonCritical() {
+		return MemoryCharacteristicNonCritical
+	} else if medium() {
 		return MemoryCharacteristicMedium
-	} else {
+	} else if sensitive() {
 		return MemoryCharacteristicSensitive
+	} else {
+		c.logger.Printf("进程 %d 没有分类，暂定为non critical", all.Pid)
+		return MemoryCharacteristicNonCritical
 	}
 }
 
 var _ Classifier = &impl{}
-
-// 给所有线程计算的加权平均MRC
-func WeightedAverageMRC(m *pin.MemRecordResult, maxRTH, cacheSize int) []float32 {
-	model := algorithm.NewAETModel(WeightedAverageRTH(m, maxRTH))
-	return model.MRC(cacheSize)
-}
-
-func WeightedAverageRTH(m *pin.MemRecordResult, maxRTH int) []int {
-	averageRth := make([]int, maxRTH+2)
-	for tid, calculator := range m.ThreadTrace {
-		rth := calculator.GetRTH(maxRTH)
-		weight := float32(m.ThreadInstructionCount[tid]) / float32(m.TotalInstructions)
-		for i := 0; i < len(averageRth); i++ {
-			averageRth[i] += int(float32(rth[i]) * weight)
-		}
-	}
-	return averageRth
-}

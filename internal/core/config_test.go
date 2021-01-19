@@ -42,6 +42,6 @@ algorithm:
 	assert.Equal(t, float64(6), c.Algorithm.Classify.MPKIVeryHigh)
 	assert.Equal(t, float64(7), c.Algorithm.Classify.HPKIVeryHigh)
 	assert.Equal(t, float64(8), c.Algorithm.Classify.IPCVeryLow)
-	assert.Equal(t, 9, c.Algorithm.Classify.NonCriticalCacheSize)
+	assert.Equal(t, 9, c.Algorithm.Classify.NonCriticalAPKI)
 
 }

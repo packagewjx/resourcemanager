@@ -53,7 +53,6 @@ func (p *perfStatRunner) perfRunner(pid int, cmd *exec.Cmd, position []*StatResu
 }
 
 func (p *perfStatRunner) parseResult(out io.Reader) *StatResult {
-	res := &StatResult{}
 	statRecords, err := csv.NewReader(out).ReadAll()
 	if err != nil {
 		all, _ := ioutil.ReadAll(out)
@@ -63,6 +62,8 @@ func (p *perfStatRunner) parseResult(out io.Reader) *StatResult {
 			Error: errors.Wrap(err, "解析Perf输出出错"),
 		}
 	}
+
+	res := &StatResult{}
 	for _, record := range statRecords {
 		cnt, err := strconv.ParseUint(record[0], 10, 64)
 		if err != nil {
@@ -94,7 +95,7 @@ func (p *perfStatRunner) Start(ctx context.Context) <-chan map[int]*StatResult {
 	}
 
 	p.logger.Println("启动perf stat监控")
-	// 负责接收结果的主线成
+	// 负责接收结果的主线程
 	go func() {
 		select {
 		case <-time.After(core.RootConfig.PerfStat.SampleTime):

@@ -71,9 +71,8 @@ func readConfig() {
 	err = viper.UnmarshalExact(core.RootConfig)
 	if err != nil {
 		log.Println("读取配置出错", err)
-	} else {
-		log.Println("读取到配置", core.RootConfig)
 	}
+	log.Println("读取到配置", core.RootConfig)
 
 	viper.WatchConfig()
 	viper.OnConfigChange(func(in fsnotify.Event) {

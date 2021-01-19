@@ -19,8 +19,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
-	"github.com/packagewjx/resourcemanager/internal/classifier"
 	"github.com/packagewjx/resourcemanager/internal/core"
+	"github.com/packagewjx/resourcemanager/internal/resourcemanager"
 	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 	"github.com/spf13/cobra"
@@ -77,7 +77,7 @@ func receiveResult(resCh <-chan *pin.MemRecordResult, cancelFunc context.CancelF
 	}
 	// 输出加权平均MRC
 	numWays, numSets, _ := utils.GetL3Cap()
-	mrc := classifier.WeightedAverageMRC(m, core.RootConfig.MemTrace.MaxRthTime, numWays*numSets*2)
+	mrc := resourcemanager.WeightedAverageMRC(m, core.RootConfig.MemTrace.MaxRthTime, numWays*numSets*2)
 	outFile, err := os.Create("sample_weighted_mrc.csv")
 	if err != nil {
 		fmt.Println("无法创建输出文件", err)

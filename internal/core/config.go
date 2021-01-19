@@ -58,16 +58,15 @@ type PerfStatConfig struct {
 }
 
 type ClassifyConfig struct {
-	MPKIVeryHigh         float64
-	HPKIVeryHigh         float64
-	HPKIVeryLow          float64
-	IPCVeryLow           float64
-	IPCLow               float64
-	LLCMissRateHigh      float64
-	LLCAPIHigh           float64
-	MRCLowest            float64
-	NonCriticalCacheSize int
-	MediumCacheSize      int
+	MPKIVeryHigh               float64
+	MPKIHigh                   float64
+	HPKIVeryHigh               float64
+	IPCVeryLow                 float64
+	IPCLow                     float64
+	NonCriticalAPKI            float64
+	NoChangeThreshold          float64
+	SignificantChangeThreshold float64
+	APKILow                    float64
 }
 
 type DCAPSConfig struct {
@@ -123,16 +122,15 @@ var RootConfig = &Config{
 	},
 	Algorithm: AlgorithmConfig{
 		Classify: ClassifyConfig{
-			MPKIVeryHigh:         10,
-			HPKIVeryHigh:         10,
-			HPKIVeryLow:          0.5,
-			IPCVeryLow:           0.6,
-			IPCLow:               1.3,
-			LLCMissRateHigh:      0.4,
-			LLCAPIHigh:           0.005,
-			MRCLowest:            0.3,
-			NonCriticalCacheSize: 512,   // L1的大小
-			MediumCacheSize:      16384, // L3两个Set的大小
+			MPKIVeryHigh:               10,
+			MPKIHigh:                   5,
+			HPKIVeryHigh:               10,
+			IPCVeryLow:                 0.6,
+			IPCLow:                     1.3,
+			NonCriticalAPKI:            1,
+			NoChangeThreshold:          0.1,
+			SignificantChangeThreshold: 0.3,
+			APKILow:                    1,
 		},
 		DCAPS: DCAPSConfig{
 			MaxIteration:                        200,

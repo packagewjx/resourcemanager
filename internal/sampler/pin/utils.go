@@ -18,7 +18,9 @@ func mkTempFifo() (string, error) {
 		}
 	}
 
-	err := syscall.Mkfifo(name, 0600)
+	oldMask := syscall.Umask(0)
+	err := syscall.Mkfifo(name, 0666)
+	syscall.Umask(oldMask)
 	return name, err
 }
 
