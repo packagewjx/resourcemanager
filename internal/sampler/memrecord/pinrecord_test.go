@@ -1,4 +1,4 @@
-package pin
+package memrecord
 
 import (
 	"context"
@@ -12,13 +12,14 @@ import (
 )
 
 func TestRecord(t *testing.T) {
-	recorder := NewMemRecorder(&Config{
+	recorder, err := NewPinMemRecorder(&Config{
 		BufferSize:     core.RootConfig.MemTrace.BufferSize,
 		WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
 		PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
 		TraceCount:     100000,
 		ConcurrentMax:  4,
 	})
+	assert.NoError(t, err)
 	pid := utils.ForkRunExample(1)
 	resCh := recorder.RecordProcess(context.Background(), &MemRecordAttachRequest{
 		MemRecordBaseRequest: MemRecordBaseRequest{

@@ -8,8 +8,8 @@ import (
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/pqos"
 	"github.com/packagewjx/resourcemanager/internal/resourcemanager/watcher"
+	"github.com/packagewjx/resourcemanager/internal/sampler/memrecord"
 	"github.com/packagewjx/resourcemanager/internal/sampler/perf"
-	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 	"github.com/pkg/errors"
 	"log"
@@ -59,7 +59,7 @@ func (p *processCharacteristic) Clone() core.Cloneable {
 type impl struct {
 	watcher                      watcher.ProcessGroupWatcher
 	classifier                   classifier.Classifier
-	memRecorder                  pin.MemRecorder
+	memRecorder                  memrecord.MemRecorder
 	reAllocTimerRoutine          *timedRoutine
 	processGroups                *processGroupMap
 	processChangeCountWhenUpdate int
@@ -74,7 +74,7 @@ func New(config *Config) (ResourceManager, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "创建分类器出错")
 	}
-	recorder, err := pin.NewMemRecorder(&pin.Config{
+	recorder, err := memrecord.NewPinMemRecorder(&memrecord.Config{
 		BufferSize:     core.RootConfig.MemTrace.BufferSize,
 		WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
 		PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
@@ -131,7 +131,6 @@ func (r *impl) handleProcessStatus(ctx context.Context, status *watcher.ProcessG
 			}
 			r.memTrace(childCtx, processGroupCtx)
 			r.reAllocTimerRoutine.requestRun()
-
 		}()
 	case watcher.ProcessGroupStatusRemove:
 		processGroup, ok := r.processGroups.get(status.Group.Id)
@@ -294,9 +293,10 @@ func (r *impl) memTrace(ctx context.Context, group *processGroupContext) {
 			c.characteristic == classifier.MemoryCharacteristicMedium {
 			wg.Add(1)
 			go func(p *processCharacteristic) {
-				ch := r.memRecorder.RecordProcess(ctx, &pin.MemRecordAttachRequest{
-					MemRecordBaseRequest: pin.MemRecordBaseRequest{
-						Factory: pin.GetCalculatorFromRootConfig(),
+				r.logger.Printf("对进程组 %s 进程 %d 开始内存追踪", group.group.Id, p.pid)
+				ch := r.memRecorder.RecordProcess(ctx, &memrecord.MemRecordAttachRequest{
+					MemRecordBaseRequest: memrecord.MemRecordBaseRequest{
+						Factory: memrecord.GetCalculatorFromRootConfig(),
 						Name:    fmt.Sprintf("%s-%d", group.group.Id, p.pid),
 					},
 					Pid: p.pid,

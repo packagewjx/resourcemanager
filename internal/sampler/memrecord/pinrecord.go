@@ -1,4 +1,4 @@
-package pin
+package memrecord
 
 import (
 	"bufio"
@@ -22,84 +22,12 @@ import (
 	"unsafe"
 )
 
-type MemRecorder interface {
-	// 对一个命令进行取样，返回该命令的所有子线程的取样结果，结果以RTHCalculator呈现，可用于计算MRC
-	RecordCommand(ctx context.Context, request *MemRecordRunRequest) <-chan *MemRecordResult
-	RecordProcess(ctx context.Context, request *MemRecordAttachRequest) <-chan *MemRecordResult
-}
-
-type MemRecordBaseRequest struct {
-	Factory RTHCalculatorFactory
-	Name    string // 用于日志显示
-	Kill    bool
-	RootDir string // 预留，用于容器使用
-}
-
-type MemRecordRunRequest struct {
-	MemRecordBaseRequest
-	Cmd  string
-	Args []string
-}
-
-type MemRecordAttachRequest struct {
-	MemRecordBaseRequest
-	Pid int
-}
-
-type MemRecordResult struct {
-	ThreadTrace            map[int]algorithm.RTHCalculator
-	ThreadInstructionCount map[int]uint64
-	TotalInstructions      uint64
-	Err                    error
-}
-
-type RTHCalculatorFactory func(tid int) algorithm.RTHCalculator
-
-var (
-	factoryFullTrace RTHCalculatorFactory = func(tid int) algorithm.RTHCalculator {
-		return algorithm.FullTraceCalculator()
-	}
-	factoryReservoir RTHCalculatorFactory = func(tid int) algorithm.RTHCalculator {
-		return algorithm.ReservoirCalculator(core.RootConfig.MemTrace.ReservoirSize)
-	}
-	factoryNoUpdate RTHCalculatorFactory = func(tid int) algorithm.RTHCalculator {
-		return algorithm.NoUpdateCalculator{}
-	}
-)
-
-func GetCalculatorFromRootConfig() RTHCalculatorFactory {
-	var factory RTHCalculatorFactory
-	switch core.RootConfig.MemTrace.RthCalculatorType {
-	case core.RthCalculatorTypeFull:
-		factory = factoryFullTrace
-	case core.RthCalculatorTypeReservoir:
-		factory = factoryReservoir
-	case core.RthCalculatorTypeNoUpdate:
-		factory = factoryNoUpdate
-	default:
-		log.Printf("RTHCalculator值错误：%s，将使用FullTrace", core.RootConfig.MemTrace.RthCalculatorType)
-		factory = factoryFullTrace
-	}
-	return factory
-}
-
 type Config struct {
 	BufferSize     int
 	WriteThreshold int
 	PinToolPath    string
 	TraceCount     int
 	ConcurrentMax  int
-}
-
-type MemRecorderRunConfig struct {
-	Config
-	Cmd  string
-	Args []string
-}
-
-type MemRecorderAttachConfig struct {
-	Config
-	Pid int
 }
 
 type pinContext struct {
@@ -127,7 +55,7 @@ func checkKernelConfig() error {
 	return nil
 }
 
-func NewMemRecorder(config *Config) (MemRecorder, error) {
+func NewPinMemRecorder(config *Config) (MemRecorder, error) {
 	err := checkKernelConfig()
 	if err != nil {
 		return nil, err
@@ -152,44 +80,11 @@ type pinRecorder struct {
 	controlChan    chan struct{}
 }
 
-func (m *pinRecorder) pinTraceReader(ctx context.Context, pinCtx *pinContext, cancelFunc context.CancelFunc) {
-	defer func() {
-		cancelFunc()
-		if pinCtx.kill {
-			// 由于结束太快，会导致Process为nil，需要等待一下再发信号
-			for pinCtx.pinCmd.Process == nil {
-				<-time.After(100 * time.Millisecond)
-			}
-			_ = pinCtx.pinCmd.Process.Kill()
-		}
-		_ = os.Remove(pinCtx.fifoPath)
-		_ = os.Remove(pinCtx.iCountPath)
-		close(pinCtx.resCh)
-	}()
-
-	// 为了避免OpenFile阻塞或者读取不到任何内容，进入之前先进行判断是否已经结束
-	select {
-	case <-ctx.Done():
-		m.logger.Printf("%s 采集未开始即结束", pinCtx.name)
-		pinCtx.resCh <- &MemRecordResult{
-			Err: fmt.Errorf("采集未开始就结束"),
-		}
-		return
-	default:
-	}
-
-	fin, err := os.OpenFile(pinCtx.fifoPath, os.O_RDONLY, os.ModeNamedPipe)
-	if err != nil {
-		pinCtx.resCh <- &MemRecordResult{
-			ThreadTrace: nil,
-			Err:         errors.Wrap(err, "打开管道失败"),
-		}
-		return
-	}
-
-	reader := bufio.NewReader(fin)
+func (m *pinRecorder) readFromPipe(ctx context.Context, file io.Reader, pinCtx *pinContext) (map[int]algorithm.RTHCalculator, error) {
+	reader := bufio.NewReader(file)
 	buf := make([]byte, unsafe.Sizeof(uint64(1)))
 	var cnt int
+	var err error
 	currTid := 0
 	addrListMap := make(map[int][]uint64) // 保存所有正在读取中的list
 	var addrList []uint64                 // 当前使用的addrList
@@ -241,7 +136,20 @@ outerLoop:
 				addrListMap[currTid] = addrList
 			}
 		} else {
-			addrList = append(addrList, data&0xFFFFFFFFFFFFFFC0)
+			addr := data & 0xFFFFFFFFFFFF
+			addrLine := addr & 0xFFFFFFFFFFC0
+			length := data >> 48
+			if length == 0 {
+				m.logger.Printf("长度出现了为0的条目")
+				length = 1
+			}
+			addrEnd := addr + length - 1
+			addrEndLine := addrEnd & 0xFFFFFFFFFFC0
+			lineCount := int((addrEndLine-addrLine)>>6 + 1)
+			for i := 0; i < lineCount; i++ {
+				addrList = append(addrList, addrLine)
+				addrLine += 0x40
+			}
 		}
 	}
 	wg.Wait() // 读取完毕后可能还没有计算完毕，需要等待
@@ -250,12 +158,57 @@ outerLoop:
 	}
 
 	// 判断是否没有读取到任何数据，返回错误
-	if len(addrListMap) == 0 {
+	if len(cMap) == 0 {
 		pinCtx.resCh <- &MemRecordResult{
 			Err: fmt.Errorf("对进程组的内存追踪没有结果"),
 		}
+		return nil, nil
+	}
+	return cMap, nil
+}
+
+func (m *pinRecorder) pinTraceReader(ctx context.Context, pinCtx *pinContext, cancelFunc context.CancelFunc) {
+	defer func() {
+		cancelFunc()
+		if pinCtx.kill {
+			// 由于结束太快，会导致Process为nil，需要等待一下再发信号
+			for pinCtx.pinCmd.Process == nil {
+				<-time.After(100 * time.Millisecond)
+			}
+			_ = pinCtx.pinCmd.Process.Kill()
+		}
+		_ = os.Remove(pinCtx.fifoPath)
+		_ = os.Remove(pinCtx.iCountPath)
+		close(pinCtx.resCh)
+	}()
+
+	// 为了避免OpenFile阻塞或者读取不到任何内容，进入之前先进行判断是否已经结束
+	select {
+	case <-ctx.Done():
+		m.logger.Printf("%s 采集未开始即结束", pinCtx.name)
+		pinCtx.resCh <- &MemRecordResult{
+			Err: fmt.Errorf("采集未开始就结束"),
+		}
+		return
+	default:
+	}
+
+	// 从管道读取数据
+	fin, err := os.OpenFile(pinCtx.fifoPath, os.O_RDONLY, os.ModeNamedPipe)
+	if err != nil {
+		pinCtx.resCh <- &MemRecordResult{
+			ThreadTrace: nil,
+			Err:         errors.Wrap(err, "打开管道失败"),
+		}
 		return
 	}
+	cMap, err := m.readFromPipe(ctx, fin, pinCtx)
+	if err != nil {
+		pinCtx.resCh <- &MemRecordResult{
+			Err: err,
+		}
+	}
+	_ = fin.Close()
 
 	// 读取指标数量文件用于加权平均
 	counts, err := readInstructionCounts(pinCtx.iCountPath)

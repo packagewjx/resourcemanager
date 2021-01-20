@@ -19,7 +19,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/core"
-	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
+	"github.com/packagewjx/resourcemanager/internal/sampler/memrecord"
 	"github.com/pkg/errors"
 	"os"
 	"strconv"
@@ -42,7 +42,7 @@ var attachCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		memRecorder, err := pin.NewMemRecorder(&pin.Config{
+		memRecorder, err := memrecord.NewPinMemRecorder(&memrecord.Config{
 			BufferSize:     core.RootConfig.MemTrace.BufferSize,
 			WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
 			PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
@@ -54,9 +54,9 @@ var attachCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		ctx, cancel := context.WithCancel(context.Background())
-		resCh := memRecorder.RecordProcess(ctx, &pin.MemRecordAttachRequest{
-			MemRecordBaseRequest: pin.MemRecordBaseRequest{
-				Factory: pin.GetCalculatorFromRootConfig(),
+		resCh := memRecorder.RecordProcess(ctx, &memrecord.MemRecordAttachRequest{
+			MemRecordBaseRequest: memrecord.MemRecordBaseRequest{
+				Factory: memrecord.GetCalculatorFromRootConfig(),
 				Name:    "sample",
 			},
 			Pid: attachPid,

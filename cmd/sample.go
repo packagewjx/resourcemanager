@@ -21,7 +21,7 @@ import (
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/resourcemanager"
-	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
+	"github.com/packagewjx/resourcemanager/internal/sampler/memrecord"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -53,7 +53,7 @@ func init() {
 	_ = viper.BindPFlag("memtrace.tracecount", sampleCmd.PersistentFlags().Lookup("stop-at"))
 }
 
-func receiveResult(resCh <-chan *pin.MemRecordResult, cancelFunc context.CancelFunc) {
+func receiveResult(resCh <-chan *memrecord.MemRecordResult, cancelFunc context.CancelFunc) {
 	sigCh := make(chan os.Signal)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {

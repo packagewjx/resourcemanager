@@ -1,11 +1,15 @@
 package algorithm
 
 import (
+	"encoding/csv"
+	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/pqos"
 	"github.com/packagewjx/resourcemanager/internal/sampler/perf"
 	"github.com/stretchr/testify/assert"
+	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 )
 
@@ -323,8 +327,12 @@ func TestRandomNeighbor(t *testing.T) {
 		},
 	}
 	schemeMap := []int{2, 3, 3, 2, 3, 3}
+	m := make(map[string]struct{})
+	sm := (*schemeVisited)(&m)
+	sm.add(schemes, schemeMap)
+	// 首先测试是否真的会产生新的方案
 	for try := 0; try < 5000; try++ {
-		newSchemes, newMap := randomNeighbor(schemes, schemeMap, 11, 8)
+		newSchemes, newMap := randomNeighbor(schemes, schemeMap, 11, 8, sm)
 		assert.Equal(t, len(schemes), len(newSchemes))
 		assert.Equal(t, len(schemeMap), len(newMap))
 		diff := 0
@@ -340,6 +348,39 @@ func TestRandomNeighbor(t *testing.T) {
 			assert.NotEqual(t, 0, schemeMap[i])
 			assert.NotEqual(t, 1, schemeMap[i])
 			if schemeMap[i] != newMap[i] {
+				diff++
+			}
+		}
+		assert.Equal(t, 1, diff)
+	}
+
+	// 测试新的方案是否与原本的方案本质上不同，即确实会分配到cacheway不一样的
+	schemes = []*pqos.CLOSScheme{
+		{
+			CLOSNum: 0,
+			WayBit:  0x7FF,
+		},
+		{
+			CLOSNum: 1,
+			WayBit:  0x7FF,
+		},
+		{
+			CLOSNum: 2,
+			WayBit:  0x7FF,
+		},
+		{
+			CLOSNum: 3,
+			WayBit:  0x7FF,
+		},
+	}
+	schemeMap = []int{0, 0, 0, 0}
+	sm.add(schemes, schemeMap)
+	for i := 0; i < 1000; i++ {
+		newSchemes, newMap := randomNeighbor(schemes, schemeMap, 11, 4, sm)
+		assert.Equal(t, newMap, schemeMap)
+		diff := 0
+		for _, scheme := range newSchemes {
+			if scheme.WayBit != 0x7FF {
 				diff++
 			}
 		}
@@ -397,5 +438,170 @@ func TestReadFromOldScheme(t *testing.T) {
 	assert.Equal(t, 4, len(readSchemes))
 	for i := 0; i < len(readSchemes); i++ {
 		assert.Equal(t, i, readSchemes[i].CLOSNum)
+	}
+}
+
+func TestSchemeVisitedKey(t *testing.T) {
+	schemes := []*pqos.CLOSScheme{
+		{
+			CLOSNum: 0,
+			WayBit:  0x00000001,
+		},
+		{
+			CLOSNum: 1,
+			WayBit:  0x00000010,
+		},
+		{
+			CLOSNum: 2,
+			WayBit:  0x00000100,
+		},
+		{
+			CLOSNum: 3,
+			WayBit:  0x00001000,
+		},
+		{
+			CLOSNum: 4,
+			WayBit:  0x00010000,
+		},
+		{
+			CLOSNum: 5,
+			WayBit:  0x00100000,
+		},
+		{
+			CLOSNum: 6,
+			WayBit:  0x01000000,
+		},
+		{
+			CLOSNum: 7,
+			WayBit:  0x10000000,
+		},
+	}
+	schemeMap := []int{0, 1, 2, 3, 4, 5, 6, 7}
+	m := map[string]struct{}{}
+	sm := (*schemeVisited)(&m)
+	key := []byte(sm.key(schemes, schemeMap))
+	assert.Equal(t, byte(0x01), key[0])
+	assert.Equal(t, byte(0x10), key[4])
+	assert.Equal(t, byte(0x01), key[9])
+	assert.Equal(t, byte(0x10), key[13])
+	assert.Equal(t, byte(0x01), key[18])
+	assert.Equal(t, byte(0x10), key[22])
+	assert.Equal(t, byte(0x01), key[27])
+	assert.Equal(t, byte(0x10), key[31])
+	assert.Equal(t, byte(0), key[32])
+	assert.Equal(t, byte(1), key[33])
+	assert.Equal(t, byte(2), key[34])
+	assert.Equal(t, byte(3), key[35])
+	assert.Equal(t, byte(4), key[36])
+	assert.Equal(t, byte(5), key[37])
+	assert.Equal(t, byte(6), key[38])
+	assert.Equal(t, byte(7), key[39])
+}
+
+func loadTestData() []*ProgramMetric {
+	_, testFilePath, _, _ := runtime.Caller(0)
+	dir := filepath.Dir(testFilePath) + "/data/"
+	fmt.Println(dir)
+	perfStatFile, _ := os.Open(dir + "perfstat.csv")
+	perfStatRecords, _ := csv.NewReader(perfStatFile).ReadAll()
+	p := make([]*ProgramMetric, len(perfStatRecords))
+	for i, record := range perfStatRecords {
+		pid, _ := strconv.ParseInt(record[1], 10, 32)
+		p[i] = &ProgramMetric{
+			Pid: int(pid),
+			PerfStat: &perf.StatResult{
+				Pid: int(pid),
+			},
+		}
+		p[i].PerfStat.Instructions, _ = strconv.ParseUint(record[2], 10, 64)
+		p[i].PerfStat.Cycles, _ = strconv.ParseUint(record[3], 10, 64)
+		p[i].PerfStat.AllStores, _ = strconv.ParseUint(record[4], 10, 64)
+		p[i].PerfStat.AllLoads, _ = strconv.ParseUint(record[5], 10, 64)
+		p[i].PerfStat.LLCMiss, _ = strconv.ParseUint(record[6], 10, 64)
+		p[i].PerfStat.LLCHit, _ = strconv.ParseUint(record[7], 10, 64)
+		p[i].PerfStat.MemAnyCycles, _ = strconv.ParseUint(record[8], 10, 64)
+		p[i].PerfStat.LLCMissCycles, _ = strconv.ParseUint(record[9], 10, 64)
+		mrcCsvFile, _ := os.Open(dir + record[0] + ".csv")
+		all, _ := csv.NewReader(mrcCsvFile).ReadAll()
+		p[i].MRC = make([]float32, len(all))
+		for _, mrcRecord := range all {
+			c, _ := strconv.ParseInt(mrcRecord[0], 10, 32)
+			f, _ := strconv.ParseFloat(mrcRecord[1], 32)
+			p[i].MRC[c] = float32(f)
+		}
+		_ = mrcCsvFile.Close()
+	}
+	_ = perfStatFile.Close()
+	return p
+}
+
+func TestDoPredict(t *testing.T) {
+	data := loadTestData()
+	schemes := []*pqos.CLOSScheme{
+		{
+			CLOSNum: 0,
+			WayBit:  0x7FF,
+		},
+		{
+			CLOSNum: 1,
+			WayBit:  0x7FF,
+		},
+		{
+			CLOSNum: 2,
+			WayBit:  0x7FF,
+		},
+		{
+			CLOSNum: 3,
+			WayBit:  0x7FF,
+		},
+		{
+			CLOSNum: 4,
+			WayBit:  0x7FF,
+		},
+		{
+			CLOSNum: 5,
+			WayBit:  0x7FF,
+		},
+	}
+	schemeMap := []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	ipc, missRate := doPredict(data, schemes, schemeMap, 11, 20480)
+	for _, f := range ipc {
+		assert.NotZero(t, f)
+	}
+	for _, f := range missRate {
+		assert.NotZero(t, f)
+	}
+
+	schemeMap = []int{2, 2, 4, 2, 5, 5, 5, 5, 3, 3}
+	schemes = []*pqos.CLOSScheme{
+		{
+			CLOSNum: 0,
+			WayBit:  0x7FF,
+		},
+		{
+			CLOSNum: 1,
+			WayBit:  0x7FF,
+		},
+		{
+			CLOSNum: 2,
+			WayBit:  0xF0,
+		},
+		{
+			CLOSNum: 3,
+			WayBit:  0xF,
+		},
+		{
+			CLOSNum: 4,
+			WayBit:  0xF,
+		},
+		{
+			CLOSNum: 5,
+			WayBit:  0x700,
+		},
+	}
+	newIpc, newMissRate := doPredict(data, schemes, schemeMap, 11, 20480)
+	for i := 0; i < len(newIpc); i++ {
+		assert.NotEqual(t, ipc[i], newIpc[i])
+		assert.NotEqual(t, missRate[i], newMissRate[i])
 	}
 }

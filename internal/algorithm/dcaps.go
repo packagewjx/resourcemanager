@@ -1,6 +1,7 @@
 package algorithm
 
 import (
+	"encoding/binary"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/pqos"
 	"github.com/packagewjx/resourcemanager/internal/sampler/perf"
@@ -22,6 +23,29 @@ type predictSystemMetric struct {
 	throughput     float64 // 定义为IPC的总和
 	averageSpeedUp float64
 	maximumSpeedUp float64
+}
+
+type schemeVisited map[string]struct{}
+
+func (m *schemeVisited) key(schemes []*pqos.CLOSScheme, schemeMap []int) string {
+	// way压缩成4个字节的数字，每个进程压缩成1个字节的closNum
+	buf := make([]byte, 4*len(schemes)+len(schemeMap))
+	for _, scheme := range schemes {
+		binary.LittleEndian.PutUint32(buf[scheme.CLOSNum*4:], uint32(scheme.WayBit))
+	}
+	for i, clos := range schemeMap {
+		buf[len(schemes)*4+i] = byte(clos)
+	}
+	return string(buf)
+}
+
+func (m *schemeVisited) add(schemes []*pqos.CLOSScheme, schemeMap []int) {
+	(*m)[m.key(schemes, schemeMap)] = struct{}{}
+}
+
+func (m *schemeVisited) isVisited(schemes []*pqos.CLOSScheme, schemeMap []int) bool {
+	_, ok := (*m)[m.key(schemes, schemeMap)]
+	return ok
 }
 
 //var numWays, numSets, _ = utils.GetL3Cap()
@@ -243,39 +267,48 @@ func compareMetric(a, b *predictSystemMetric) int {
 	return aScore - bScore
 }
 
-func randomNeighbor(schemes []*pqos.CLOSScheme, schemeMap []int, numWays, numClos int) (newSchemes []*pqos.CLOSScheme, newMap []int) {
+func randomNeighbor(schemes []*pqos.CLOSScheme, schemeMap []int, numWays, numClos int, visited *schemeVisited) (newSchemes []*pqos.CLOSScheme, newMap []int) {
 	randClos := func() int {
 		return 2 + rand.Intn(numClos-2)
 	}
-	// 前置条件：
-	// 1. CLOS 0预留给系统和未分配的程序
-	// 2. CLOS 1将只有两个way可用，分配给Bully、Squanderer和NonCritical去竞争，其他程序用其他的way
+	newSchemes = schemes
+	newMap = schemeMap
+	for visited.isVisited(newSchemes, newMap) {
+		// 前置条件：
+		// 1. CLOS 0预留给系统和未分配的程序
+		// 2. CLOS 1将只有两个way可用，分配给Bully、Squanderer和NonCritical去竞争，其他程序用其他的way
 
-	// 改变的内容可以是
-	// 1. Way分配改变：way + 1, way - 1, way更改位置。在只剩下1个way的时候不会继续减。不会动CLOS 0与CLOS 1的设置
-	// 2. Process更改：进程从一个CLOS移动到另一个CLOS
-	// 两个的概率是不一样的，这个概率应该需要研究
-	sample := rand.Float64()
-	if sample < core.RootConfig.Algorithm.DCAPS.ProbabilityChangeScheme {
-		newSchemes = cloneSchemes(schemes)
-		newMap = schemeMap
-		// 随机修改Way
-		clos := randClos()                  // 随机选一个更改
-		pos := rand.Intn(numWays)           // 随机挑选一个位置
-		newSchemes[clos].WayBit ^= 1 << pos // 异或一个位置，可能加可能减
-		if newSchemes[clos].WayBit == 0 {
-			pos = rand.Intn(numWays)
-			newSchemes[clos].WayBit ^= 1 << pos
-		}
-	} else {
-		newSchemes = schemes
-		newMap = make([]int, len(schemeMap))
-		copy(newMap, schemeMap)
-		// 随机修改Process的CLOS分配
-		pos := rand.Intn(len(newMap))
-		oldClos := newMap[pos]
-		for newMap[pos] == oldClos {
-			newMap[pos] = randClos()
+		// 改变的内容可以是
+		// 1. Way分配改变：way + 1, way - 1, way更改位置。在只剩下1个way的时候不会继续减。不会动CLOS 0与CLOS 1的设置
+		// 2. Process更改：进程从一个CLOS移动到另一个CLOS
+		// 两个的概率是不一样的，这个概率应该需要研究
+		sample := rand.Float64()
+		if sample < core.RootConfig.Algorithm.DCAPS.ProbabilityChangeScheme {
+			newSchemes = cloneSchemes(schemes)
+			newMap = schemeMap
+			// 随机修改Way
+			clos := randClos()                  // 随机选一个更改
+			pos := rand.Intn(numWays)           // 随机挑选一个位置
+			newSchemes[clos].WayBit ^= 1 << pos // 异或一个位置，可能加可能减
+			if newSchemes[clos].WayBit == 0 {
+				pos = rand.Intn(numWays)
+				newSchemes[clos].WayBit ^= 1 << pos
+			}
+		} else {
+			newSchemes = schemes
+			newMap = make([]int, len(schemeMap))
+			copy(newMap, schemeMap)
+			// 随机修改Process的CLOS分配
+			pos := rand.Intn(len(newMap))
+			oldClos := newMap[pos]
+			for newMap[pos] == oldClos {
+				newMap[pos] = randClos()
+			}
+			// 如果要移动到另一个Scheme，则必须移动到一个waybit不一样的，否则前后没有区别
+			if newSchemes[oldClos].WayBit == newSchemes[newMap[pos]].WayBit {
+				newMap = schemeMap
+				continue
+			}
 		}
 	}
 	return
@@ -321,8 +354,11 @@ func readFromOldSchemes(programs []*ProgramMetric, oldSchemes []*pqos.CLOSScheme
 func DCAPS(programs []*ProgramMetric, oldSchemes []*pqos.CLOSScheme, numWays, numSets, numClos int) []*pqos.CLOSScheme {
 	var schemes []*pqos.CLOSScheme
 	var schemeMap []int // 将每个程序的closNum保存下来用于加速查找过程
+	m := make(map[string]struct{})
+	visited := (*schemeVisited)(&m)
 	if oldSchemes != nil {
 		schemes, schemeMap = readFromOldSchemes(programs, oldSchemes, numWays, numClos)
+		visited.add(schemes, schemeMap)
 	} else {
 		schemes = make([]*pqos.CLOSScheme, numClos)
 		for i := 0; i < len(schemes); i++ {
@@ -338,6 +374,7 @@ func DCAPS(programs []*ProgramMetric, oldSchemes []*pqos.CLOSScheme, numWays, nu
 
 	ipc, missRate := doPredict(programs, schemes, schemeMap, numWays, numSets)
 	metric := calculateSystemMetric(programs, ipc, missRate)
+	visited.add(schemes, schemeMap)
 	var bestScheme = schemes
 	var bestMetric = metric
 	var bestSchemeMap = schemeMap
@@ -347,9 +384,10 @@ func DCAPS(programs []*ProgramMetric, oldSchemes []*pqos.CLOSScheme, numWays, nu
 	k := core.RootConfig.Algorithm.DCAPS.K
 
 	for t > core.RootConfig.Algorithm.DCAPS.TemperatureMin {
-		newSchemes, newSchemeMap := randomNeighbor(schemes, schemeMap, numWays, numClos)
+		newSchemes, newSchemeMap := randomNeighbor(schemes, schemeMap, numWays, numClos, visited)
 		newIpc, newMissRate := doPredict(programs, newSchemes, newSchemeMap, numWays, numSets)
 		newMetric := calculateSystemMetric(programs, newIpc, newMissRate)
+		visited.add(newSchemes, newSchemeMap)
 		if compareMetric(bestMetric, newMetric) < 0 {
 			bestMetric = newMetric
 			bestScheme = newSchemes

@@ -2,16 +2,16 @@ package resourcemanager
 
 import (
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
-	"github.com/packagewjx/resourcemanager/internal/sampler/pin"
+	"github.com/packagewjx/resourcemanager/internal/sampler/memrecord"
 )
 
 // 给所有线程计算的加权平均MRC
-func WeightedAverageMRC(m *pin.MemRecordResult, maxRTH, cacheSize int) []float32 {
+func WeightedAverageMRC(m *memrecord.MemRecordResult, maxRTH, cacheSize int) []float32 {
 	model := algorithm.NewAETModel(WeightedAverageRTH(m, maxRTH))
 	return model.MRC(cacheSize)
 }
 
-func WeightedAverageRTH(m *pin.MemRecordResult, maxRTH int) []int {
+func WeightedAverageRTH(m *memrecord.MemRecordResult, maxRTH int) []int {
 	averageRth := make([]int, maxRTH+2)
 	for tid, calculator := range m.ThreadTrace {
 		rth := calculator.GetRTH(maxRTH)

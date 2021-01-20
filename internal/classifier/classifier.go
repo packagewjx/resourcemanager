@@ -48,18 +48,11 @@ type Classifier interface {
 func New(_ *Config) (Classifier, error) {
 	return &impl{
 		logger: log.New(os.Stdout, fmt.Sprintf("Classifier: "), log.Lmsgprefix|log.LstdFlags|log.Lshortfile),
-		mpkiStat: &metricStat{
-			data: []float64{},
-			sum:  0,
-			avg:  0,
-			std:  0,
-		},
 	}, nil
 }
 
 type impl struct {
 	reservoirSize int
-	mpkiStat      *metricStat
 	logger        *log.Logger
 }
 

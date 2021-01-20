@@ -19,6 +19,7 @@ type Config struct {
 	Algorithm  AlgorithmConfig
 	Kubernetes KubernetesConfig
 	Manager    ManagerConfig
+	Debug      DebugConfig
 }
 
 type RthCalculatorType string
@@ -102,6 +103,10 @@ type ManagerConfig struct {
 	ClassifyAfter               time.Duration // 跳过应用启动的的初始化时间
 }
 
+type DebugConfig struct {
+	IgnorePqosError bool // 即便PQOS设置失败，也不会返回错误。鉴于开发机没有CAT功能，打开此选项用于本地调试。
+}
+
 var RootConfig = &Config{
 	MemTrace: MemTraceConfig{
 		TraceCount:        1000000000,
@@ -141,7 +146,7 @@ var RootConfig = &Config{
 			TemperatureMin:                      100,
 			TemperatureReductionRatio:           0.8,
 			K:                                   1,
-			ProbabilityChangeScheme:             0.1,
+			ProbabilityChangeScheme:             0.2,
 			AggregateChangeOfOccupancyThreshold: 100,
 		},
 	},
@@ -152,6 +157,9 @@ var RootConfig = &Config{
 		TargetPrograms: []string{"blackscholes", "bodytrack", "canneal", "dedup", "facesim", "ferret", "fluidanimate", "freqmine",
 			"rtview", "streamcluster", "swaptions", "vips", "x264"},
 		ClassifyAfter: 5 * time.Second,
+	},
+	Debug: DebugConfig{
+		IgnorePqosError: false,
 	},
 }
 
