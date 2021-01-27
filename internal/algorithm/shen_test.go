@@ -32,11 +32,11 @@ func TestShenModelWithRandomAddress(t *testing.T) {
 	for i := 0; i < len(addr); i++ {
 		addr[i] = r.Uint64() & addrMask
 	}
-	model := newShenModel(addr, 1000)
+	model := NewShenModel(1000)
+	model.AddAddresses(addr)
 	assert.NotNil(t, model)
 	sum := float64(0)
-	rdh := model.reuseDistanceHistogram()
-	model.prk(170)
+	rdh := model.ReuseDistanceHistogram()
 	for i, f := range rdh {
 		sum += f
 		assert.False(t, math.IsNaN(f), "%d should not be NaN", i)
@@ -53,8 +53,9 @@ func TestShenModelWithLsData(t *testing.T) {
 		for i := 0; i < len(addr); i++ {
 			addr[i] &= 0xFFFFFFFFFFFF
 		}
-		model := newShenModel(addr, 10000)
-		rdh := model.reuseDistanceHistogram()
+		model := NewShenModel(10000)
+		model.AddAddresses(addr)
+		rdh := model.ReuseDistanceHistogram()
 		sum := float64(0)
 		for _, f := range rdh {
 			sum += f
@@ -67,5 +68,20 @@ func TestShenModelWithLsData(t *testing.T) {
 func BenchmarkCombination(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		newCombination(10000)
+	}
+}
+
+func BenchmarkReuseDistanceHistogram(b *testing.B) {
+	addr := make([]uint64, 5000)
+	const addrMask = 0xFFFFC
+	r := rand.New(rand.NewSource(1))
+	for i := 0; i < len(addr); i++ {
+		addr[i] = r.Uint64() & addrMask
+	}
+	model := NewShenModel(1000)
+	model.AddAddresses(addr)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		model.ReuseDistanceHistogram()
 	}
 }

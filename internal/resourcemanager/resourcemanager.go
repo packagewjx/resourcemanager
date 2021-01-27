@@ -294,10 +294,11 @@ func (r *impl) memTrace(ctx context.Context, group *processGroupContext) {
 			wg.Add(1)
 			go func(p *processCharacteristic) {
 				r.logger.Printf("对进程组 %s 进程 %d 开始内存追踪", group.group.Id, p.pid)
+				consumer := memrecord.NewRTHCalculatorConsumer(memrecord.GetCalculatorFromRootConfig())
 				ch := r.memRecorder.RecordProcess(ctx, &memrecord.MemRecordAttachRequest{
 					MemRecordBaseRequest: memrecord.MemRecordBaseRequest{
-						Factory: memrecord.GetCalculatorFromRootConfig(),
-						Name:    fmt.Sprintf("%s-%d", group.group.Id, p.pid),
+						Consumer: consumer,
+						Name:     fmt.Sprintf("%s-%d", group.group.Id, p.pid),
 					},
 					Pid: p.pid,
 				})
@@ -306,7 +307,8 @@ func (r *impl) memTrace(ctx context.Context, group *processGroupContext) {
 					r.logger.Printf("对进程组 %s 进程 %d 的内存追踪错误：%v", group.group.Id, p.pid, result.Err)
 					p.mrc = []float32{}
 				} else {
-					p.mrc = WeightedAverageMRC(result, core.RootConfig.MemTrace.MaxRthTime, numWays*numSets)
+					p.mrc = WeightedAverageMRC(consumer.GetCalculatorMap(), result.ThreadInstructionCount,
+						result.TotalInstructions, core.RootConfig.MemTrace.MaxRthTime, numWays*numSets)
 				}
 				wg.Done()
 			}(c)

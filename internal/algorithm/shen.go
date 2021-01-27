@@ -13,37 +13,47 @@ Xipeng Shen, Jonathan Shaw, et. al.
 
 const cacheLineMask = 0xFFFFFFFFFFFFFFC0
 
-type shenModel struct {
-	numAddr int       // 论文中的N
-	pt      []float64 // 复用时间占比
-	p3      []float64
-	c       *combination
-	maxTime int
+type ShenModel struct {
+	lastAccess map[uint64]int
+	maxTime    int
+	time       int
+	rth        []int
 }
 
-func newShenModel(addrList []uint64, maxTime int) *shenModel {
-	lastAccess := make(map[uint64]int)
-	rth := make([]int, maxTime+2)
-	for t, a := range addrList {
+func NewShenModel(maxTime int) *ShenModel {
+	return &ShenModel{
+		lastAccess: make(map[uint64]int),
+		maxTime:    maxTime,
+		time:       0,
+		rth:        make([]int, maxTime+2),
+	}
+}
+
+func (m *ShenModel) AddAddresses(list []uint64) {
+	for t, a := range list {
 		addr := a & cacheLineMask
-		tl, ok := lastAccess[addr]
+		tl, ok := m.lastAccess[addr]
 		if ok {
 			reuseTime := t - tl
-			if t-tl > maxTime {
-				rth[maxTime+1]++
+			if t-tl > m.maxTime {
+				m.rth[m.maxTime+1]++
 			} else {
-				rth[reuseTime]++
+				m.rth[reuseTime]++
 			}
 		}
-		lastAccess[addr] = t
+		m.lastAccess[addr] = t + m.time
 	}
+	m.time += len(list)
+}
 
+//ReuseDistanceHistogram 根据当前的所有地址，计算出现在的Reuse Time Histogram
+func (m *ShenModel) ReuseDistanceHistogram() []float64 {
 	rthSum := 0
-	for _, i := range rth {
+	for _, i := range m.rth {
 		rthSum += i
 	}
-	pt := make([]float64, len(rth))
-	for i, v := range rth {
+	pt := make([]float64, len(m.rth))
+	for i, v := range m.rth {
 		pt[i] = float64(v) / float64(rthSum)
 	}
 
@@ -53,29 +63,20 @@ func newShenModel(addrList []uint64, maxTime int) *shenModel {
 		ptPostFixSum[i] = pt[i] + ptPostFixSum[i+1]
 	}
 
-	N := len(lastAccess)
-	p3 := make([]float64, maxTime+1)
+	N := len(m.lastAccess)
+	p3 := make([]float64, m.maxTime+1)
 	p3[1] = 1 / float64(N-1) * ptPostFixSum[2]
-	for t := 2; t <= maxTime; t++ {
+	for t := 2; t <= m.maxTime; t++ {
 		p3[t] = p3[t-1] + 1/float64(N-1)*ptPostFixSum[t+1]
 	}
+	c := newCombination(N)
 
-	return &shenModel{
-		numAddr: N,
-		pt:      pt,
-		p3:      p3,
-		c:       newCombination(N),
-		maxTime: maxTime,
-	}
-}
-
-func (m *shenModel) reuseDistanceHistogram() []float64 {
 	wg := sync.WaitGroup{}
-	result := make([]float64, m.numAddr+1)
-	for d := 1; d <= m.numAddr; d++ {
+	result := make([]float64, N+1)
+	for d := 1; d <= N; d++ {
 		wg.Add(1)
 		go func(d int) {
-			result[d] = m.prk(d)
+			result[d] = m.prk(d, N, pt, p3, c)
 			wg.Done()
 		}(d)
 	}
@@ -83,18 +84,18 @@ func (m *shenModel) reuseDistanceHistogram() []float64 {
 	return result
 }
 
-func (m *shenModel) prk(k int) float64 {
+func (m *ShenModel) prk(k, N int, pt, p3 []float64, c *combination) float64 {
 	res := float64(0)
 	for delta := 1; delta <= m.maxTime; delta++ {
-		res += m.pkdelta(k, delta) * m.pt[delta]
+		res += m.pkdelta(k, delta, N, p3, c) * pt[delta]
 	}
 	return res
 }
 
-func (m *shenModel) pkdelta(k int, delta int) float64 {
-	p1 := big.NewFloat(math.Pow(m.p3[delta], float64(k)))
-	mck := m.c.k(k)
-	p2 := big.NewFloat(math.Pow(1-m.p3[delta], float64(m.numAddr-k)))
+func (m *ShenModel) pkdelta(k, delta, N int, p3 []float64, c *combination) float64 {
+	p1 := big.NewFloat(math.Pow(p3[delta], float64(k)))
+	mck := c.k(k)
+	p2 := big.NewFloat(math.Pow(1-p3[delta], float64(N-k)))
 	res := big.NewFloat(0)
 	res.Mul(mck, p1)
 	res.Mul(res, p2)

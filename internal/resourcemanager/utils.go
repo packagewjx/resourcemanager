@@ -2,20 +2,19 @@ package resourcemanager
 
 import (
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
-	"github.com/packagewjx/resourcemanager/internal/sampler/memrecord"
 )
 
 // 给所有线程计算的加权平均MRC
-func WeightedAverageMRC(m *memrecord.MemRecordResult, maxRTH, cacheSize int) []float32 {
-	model := algorithm.NewAETModel(WeightedAverageRTH(m, maxRTH))
+func WeightedAverageMRC(cMap map[int]algorithm.RTHCalculator, threadCount map[int]uint64, totalCount uint64, maxRTH, cacheSize int) []float32 {
+	model := algorithm.NewAETModel(WeightedAverageRTH(cMap, threadCount, totalCount, maxRTH))
 	return model.MRC(cacheSize)
 }
 
-func WeightedAverageRTH(m *memrecord.MemRecordResult, maxRTH int) []int {
+func WeightedAverageRTH(cMap map[int]algorithm.RTHCalculator, threadCount map[int]uint64, totalCount uint64, maxRTH int) []int {
 	averageRth := make([]int, maxRTH+2)
-	for tid, calculator := range m.ThreadTrace {
+	for tid, calculator := range cMap {
 		rth := calculator.GetRTH(maxRTH)
-		weight := float32(m.ThreadInstructionCount[tid]) / float32(m.TotalInstructions)
+		weight := float32(threadCount[tid]) / float32(totalCount)
 		for i := 0; i < len(averageRth); i++ {
 			averageRth[i] += int(float32(rth[i]) * weight)
 		}

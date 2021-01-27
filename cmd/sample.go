@@ -53,7 +53,7 @@ func init() {
 	_ = viper.BindPFlag("memtrace.tracecount", sampleCmd.PersistentFlags().Lookup("stop-at"))
 }
 
-func receiveResult(resCh <-chan *memrecord.MemRecordResult, cancelFunc context.CancelFunc) {
+func receiveResult(resCh <-chan *memrecord.MemRecordResult, cancelFunc context.CancelFunc, consumer memrecord.RTHCalculatorConsumer) {
 	sigCh := make(chan os.Signal)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -66,7 +66,8 @@ func receiveResult(resCh <-chan *memrecord.MemRecordResult, cancelFunc context.C
 		os.Exit(1)
 	}
 	fmt.Println("正在输出结果")
-	for tid, calculator := range m.ThreadTrace {
+	threadTrace := consumer.GetCalculatorMap()
+	for tid, calculator := range threadTrace {
 		outFile, err := os.Create(fmt.Sprintf("sample_%d.csv", tid))
 		if err != nil {
 			fmt.Println("无法创建输出文件", err)
@@ -77,7 +78,8 @@ func receiveResult(resCh <-chan *memrecord.MemRecordResult, cancelFunc context.C
 	}
 	// 输出加权平均MRC
 	numWays, numSets, _ := utils.GetL3Cap()
-	mrc := resourcemanager.WeightedAverageMRC(m, core.RootConfig.MemTrace.MaxRthTime, numWays*numSets*2)
+	mrc := resourcemanager.WeightedAverageMRC(threadTrace, m.ThreadInstructionCount, m.TotalInstructions,
+		core.RootConfig.MemTrace.MaxRthTime, numWays*numSets*2)
 	outFile, err := os.Create("sample_weighted_mrc.csv")
 	if err != nil {
 		fmt.Println("无法创建输出文件", err)

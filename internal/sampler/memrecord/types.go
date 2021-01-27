@@ -14,10 +14,10 @@ type MemRecorder interface {
 }
 
 type MemRecordBaseRequest struct {
-	Factory RTHCalculatorFactory
-	Name    string // 用于日志显示
-	Kill    bool
-	RootDir string // 预留，用于容器使用
+	Name     string // 用于日志显示
+	Kill     bool
+	RootDir  string // 预留，用于容器使用
+	Consumer CacheLineAddressConsumer
 }
 
 type MemRecordRunRequest struct {
@@ -32,7 +32,6 @@ type MemRecordAttachRequest struct {
 }
 
 type MemRecordResult struct {
-	ThreadTrace            map[int]algorithm.RTHCalculator
 	ThreadInstructionCount map[int]uint64
 	TotalInstructions      uint64
 	Err                    error
@@ -66,4 +65,71 @@ func GetCalculatorFromRootConfig() RTHCalculatorFactory {
 		factory = factoryFullTrace
 	}
 	return factory
+}
+
+type CacheLineAddressConsumer interface {
+	Consume(tid int, addr []uint64)
+}
+
+type RTHCalculatorConsumer interface {
+	CacheLineAddressConsumer
+	GetCalculatorMap() map[int]algorithm.RTHCalculator
+}
+
+type rthCalculatorConsumer struct {
+	factory RTHCalculatorFactory
+	cMap    map[int]algorithm.RTHCalculator
+}
+
+func (r *rthCalculatorConsumer) GetCalculatorMap() map[int]algorithm.RTHCalculator {
+	return r.cMap
+}
+
+func NewRTHCalculatorConsumer(factory RTHCalculatorFactory) RTHCalculatorConsumer {
+	return &rthCalculatorConsumer{
+		factory: factory,
+		cMap:    make(map[int]algorithm.RTHCalculator),
+	}
+}
+
+func (r *rthCalculatorConsumer) Consume(tid int, addr []uint64) {
+	c, ok := r.cMap[tid]
+	if !ok {
+		c = r.factory(tid)
+		r.cMap[tid] = c
+	}
+	c.Update(addr)
+}
+
+type ShenModelConsumer interface {
+	CacheLineAddressConsumer
+	GetReuseTimeHistogram() map[int][]float64
+}
+
+type shenModelConsumer struct {
+	m       map[int]*algorithm.ShenModel
+	maxTime int
+}
+
+func (s *shenModelConsumer) Consume(tid int, addr []uint64) {
+	c, ok := s.m[tid]
+	if !ok {
+		s.m[tid] = algorithm.NewShenModel(s.maxTime)
+	}
+	c.AddAddresses(addr)
+}
+
+func (s *shenModelConsumer) GetReuseTimeHistogram() map[int][]float64 {
+	res := make(map[int][]float64)
+	for tid, model := range s.m {
+		res[tid] = model.ReuseDistanceHistogram()
+	}
+	return res
+}
+
+func NewShenModelConsumer(maxTime int) ShenModelConsumer {
+	return &shenModelConsumer{
+		m:       make(map[int]*algorithm.ShenModel),
+		maxTime: maxTime,
+	}
 }

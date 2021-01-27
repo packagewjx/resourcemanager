@@ -54,14 +54,15 @@ var attachCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		ctx, cancel := context.WithCancel(context.Background())
+		consumer := memrecord.NewRTHCalculatorConsumer(memrecord.GetCalculatorFromRootConfig())
 		resCh := memRecorder.RecordProcess(ctx, &memrecord.MemRecordAttachRequest{
 			MemRecordBaseRequest: memrecord.MemRecordBaseRequest{
-				Factory: memrecord.GetCalculatorFromRootConfig(),
-				Name:    "sample",
+				Name:     "sample",
+				Consumer: consumer,
 			},
 			Pid: attachPid,
 		})
-		receiveResult(resCh, cancel)
+		receiveResult(resCh, cancel, consumer)
 	},
 }
 

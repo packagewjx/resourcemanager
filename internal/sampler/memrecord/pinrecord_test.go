@@ -21,12 +21,13 @@ func TestRecord(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	pid := utils.ForkRunExample(1)
+	consumer := NewRTHCalculatorConsumer(func(tid int) algorithm.RTHCalculator {
+		return algorithm.ReservoirCalculator(core.RootConfig.MemTrace.ReservoirSize)
+	})
 	resCh := recorder.RecordProcess(context.Background(), &MemRecordAttachRequest{
 		MemRecordBaseRequest: MemRecordBaseRequest{
-			Factory: func(tid int) algorithm.RTHCalculator {
-				return algorithm.ReservoirCalculator(core.RootConfig.MemTrace.ReservoirSize)
-			},
-			Name: "test",
+			Name:     "test",
+			Consumer: consumer,
 		},
 		Pid: pid,
 	})
@@ -37,8 +38,9 @@ func TestRecord(t *testing.T) {
 	case res := <-resCh:
 		assert.NotNil(t, res)
 		assert.NoError(t, res.Err)
-		assert.NotZero(t, len(res.ThreadTrace))
-		for _, calculator := range res.ThreadTrace {
+		threadTrace := consumer.GetCalculatorMap()
+		assert.NotZero(t, len(threadTrace))
+		for _, calculator := range threadTrace {
 			rth := calculator.GetRTH(10000)
 			sum := 0
 			for i := 0; i < len(rth); i++ {

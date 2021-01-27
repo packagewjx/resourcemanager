@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/csv"
 	"fmt"
-	"github.com/packagewjx/resourcemanager/internal/algorithm"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/pkg/errors"
 	"io"
@@ -34,11 +33,11 @@ type pinContext struct {
 	name       string
 	pinCmd     *exec.Cmd
 	kill       bool
-	factory    RTHCalculatorFactory
 	resCh      chan *MemRecordResult
 	readCnt    uint // 性能优化使用，监测读取速度
 	fifoPath   string
 	iCountPath string
+	consumer   CacheLineAddressConsumer
 }
 
 func checkKernelConfig() error {
@@ -62,33 +61,29 @@ func NewPinMemRecorder(config *Config) (MemRecorder, error) {
 	}
 
 	return &pinRecorder{
-		traceCount:     config.TraceCount,
-		toolPath:       config.PinToolPath,
-		bufferSize:     config.BufferSize,
-		writeThreshold: config.WriteThreshold,
-		logger:         log.New(os.Stdout, "PinRecorder: ", log.LstdFlags|log.Lmsgprefix|log.Lshortfile),
-		controlChan:    make(chan struct{}, config.ConcurrentMax),
+		traceCount:  config.TraceCount,
+		toolPath:    config.PinToolPath,
+		bufferSize:  config.BufferSize,
+		logger:      log.New(os.Stdout, "PinRecorder: ", log.LstdFlags|log.Lmsgprefix|log.Lshortfile),
+		controlChan: make(chan struct{}, config.ConcurrentMax),
 	}, nil
 }
 
 type pinRecorder struct {
-	traceCount     int
-	toolPath       string
-	bufferSize     int
-	writeThreshold int
-	logger         *log.Logger
-	controlChan    chan struct{}
+	traceCount  int
+	toolPath    string
+	bufferSize  int
+	logger      *log.Logger
+	controlChan chan struct{}
 }
 
-func (m *pinRecorder) readFromPipe(ctx context.Context, file io.Reader, pinCtx *pinContext) (map[int]algorithm.RTHCalculator, error) {
+func (m *pinRecorder) readFromPipe(ctx context.Context, file io.Reader, pinCtx *pinContext) error {
 	reader := bufio.NewReader(file)
 	buf := make([]byte, unsafe.Sizeof(uint64(1)))
 	var cnt int
 	var err error
-	currTid := 0
-	addrListMap := make(map[int][]uint64) // 保存所有正在读取中的list
-	var addrList []uint64                 // 当前使用的addrList
-	cMap := make(map[int]algorithm.RTHCalculator)
+	var currTid int
+	var addrList []uint64 // 当前使用的addrList
 	wg := sync.WaitGroup{}
 	m.logger.Println("开始从管道读取监控数据")
 outerLoop:
@@ -106,35 +101,18 @@ outerLoop:
 		data := binary.LittleEndian.Uint64(buf)
 		if data == 0 {
 			// 上一次结束
-			if len(addrList) > m.writeThreshold {
-				// 因为读取过快而消费过慢，会等待一段时间，因此读取到list足够长的时候，然后实际消费
-				c, ok := cMap[currTid]
-				if !ok {
-					c = pinCtx.factory(currTid)
-					cMap[currTid] = c
-				}
-				wg.Wait()
-				wg.Add(1)
-				go func(calculator algorithm.RTHCalculator, list []uint64) {
-					c.Update(list)
-					wg.Done()
-				}(c, addrList)
-				addrListMap[currTid] = nil
-			} else {
-				addrListMap[currTid] = addrList
-			}
-
+			wg.Wait()
+			wg.Add(1)
+			go func(tid int, list []uint64) {
+				pinCtx.consumer.Consume(tid, list)
+				wg.Done()
+			}(currTid, addrList)
 			currTid = 0
 			addrList = nil
 			continue
 		}
 		if currTid == 0 {
 			currTid = int(data)
-			addrList = addrListMap[currTid]
-			if addrList == nil {
-				addrList = make([]uint64, 0, 32768)
-				addrListMap[currTid] = addrList
-			}
 		} else {
 			addr := data & 0xFFFFFFFFFFFF
 			addrLine := addr & 0xFFFFFFFFFFC0
@@ -158,13 +136,10 @@ outerLoop:
 	}
 
 	// 判断是否没有读取到任何数据，返回错误
-	if len(cMap) == 0 {
-		pinCtx.resCh <- &MemRecordResult{
-			Err: fmt.Errorf("对进程组的内存追踪没有结果"),
-		}
-		return nil, nil
+	if pinCtx.readCnt == 0 {
+		return fmt.Errorf("对进程组的内存追踪没有结果")
 	}
-	return cMap, nil
+	return nil
 }
 
 func (m *pinRecorder) pinTraceReader(ctx context.Context, pinCtx *pinContext, cancelFunc context.CancelFunc) {
@@ -197,12 +172,11 @@ func (m *pinRecorder) pinTraceReader(ctx context.Context, pinCtx *pinContext, ca
 	fin, err := os.OpenFile(pinCtx.fifoPath, os.O_RDONLY, os.ModeNamedPipe)
 	if err != nil {
 		pinCtx.resCh <- &MemRecordResult{
-			ThreadTrace: nil,
-			Err:         errors.Wrap(err, "打开管道失败"),
+			Err: errors.Wrap(err, "打开管道失败"),
 		}
 		return
 	}
-	cMap, err := m.readFromPipe(ctx, fin, pinCtx)
+	err = m.readFromPipe(ctx, fin, pinCtx)
 	if err != nil {
 		pinCtx.resCh <- &MemRecordResult{
 			Err: err,
@@ -222,7 +196,6 @@ func (m *pinRecorder) pinTraceReader(ctx context.Context, pinCtx *pinContext, ca
 	m.logger.Printf("采集结束，总共采集 %d 条内存访问地址", pinCtx.readCnt)
 	_ = fin.Close()
 	pinCtx.resCh <- &MemRecordResult{
-		ThreadTrace:            cMap,
 		ThreadInstructionCount: counts,
 		TotalInstructions:      totalCount,
 		Err:                    nil,
@@ -300,8 +273,7 @@ outerLoop:
 		if err != nil {
 			_ = os.Remove(pinCtx.fifoPath)
 			pinCtx.resCh <- &MemRecordResult{
-				ThreadTrace: nil,
-				Err:         err,
+				Err: err,
 			}
 			close(pinCtx.resCh)
 			<-m.controlChan
@@ -349,10 +321,10 @@ func (m *pinRecorder) RecordCommand(ctx context.Context, request *MemRecordRunRe
 		name:       request.Name,
 		pinCmd:     pinCmd,
 		kill:       request.Kill,
-		factory:    request.Factory,
 		resCh:      resCh,
 		fifoPath:   fifoPath,
 		iCountPath: iCountPath,
+		consumer:   request.Consumer,
 	}
 
 	m.startMemTrace(ctx, pinCtx)
@@ -377,10 +349,10 @@ func (m *pinRecorder) RecordProcess(ctx context.Context, request *MemRecordAttac
 		name:       request.Name,
 		pinCmd:     pinCmd,
 		kill:       request.Kill,
-		factory:    request.Factory,
 		resCh:      resCh,
 		fifoPath:   fifoPath,
 		iCountPath: iCountPath,
+		consumer:   request.Consumer,
 	}
 
 	m.startMemTrace(ctx, pinCtx)

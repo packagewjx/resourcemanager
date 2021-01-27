@@ -47,15 +47,16 @@ var commandCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		ctx, cancel := context.WithCancel(context.Background())
+		consumer := memrecord.NewRTHCalculatorConsumer(memrecord.GetCalculatorFromRootConfig())
 		resCh := recorder.RecordCommand(ctx, &memrecord.MemRecordRunRequest{
 			MemRecordBaseRequest: memrecord.MemRecordBaseRequest{
-				Factory: memrecord.GetCalculatorFromRootConfig(),
-				Name:    "test",
+				Name:     "test",
+				Consumer: consumer,
 			},
 			Cmd:  args[0],
 			Args: args[1:],
 		})
-		receiveResult(resCh, cancel)
+		receiveResult(resCh, cancel, consumer)
 	},
 }
 
