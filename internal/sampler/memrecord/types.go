@@ -114,7 +114,8 @@ type shenModelConsumer struct {
 func (s *shenModelConsumer) Consume(tid int, addr []uint64) {
 	c, ok := s.m[tid]
 	if !ok {
-		s.m[tid] = algorithm.NewShenModel(s.maxTime)
+		c = algorithm.NewShenModel(s.maxTime)
+		s.m[tid] = c
 	}
 	c.AddAddresses(addr)
 }

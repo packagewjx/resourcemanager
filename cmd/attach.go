@@ -16,9 +16,7 @@ limitations under the License.
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/sampler/memrecord"
 	"github.com/pkg/errors"
 	"os"
@@ -42,27 +40,17 @@ var attachCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		memRecorder, err := memrecord.NewPinMemRecorder(&memrecord.Config{
-			BufferSize:     core.RootConfig.MemTrace.BufferSize,
-			WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
-			PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
-			ConcurrentMax:  core.RootConfig.MemTrace.ConcurrentMax,
-			TraceCount:     core.RootConfig.MemTrace.TraceCount,
-		})
+		rq := &memrecord.MemRecordAttachRequest{
+			MemRecordBaseRequest: memrecord.MemRecordBaseRequest{
+				Name: "sample",
+			},
+			Pid: attachPid,
+		}
+		err := executeSampleCommand(rq)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		consumer := memrecord.NewRTHCalculatorConsumer(memrecord.GetCalculatorFromRootConfig())
-		resCh := memRecorder.RecordProcess(ctx, &memrecord.MemRecordAttachRequest{
-			MemRecordBaseRequest: memrecord.MemRecordBaseRequest{
-				Name:     "sample",
-				Consumer: consumer,
-			},
-			Pid: attachPid,
-		})
-		receiveResult(resCh, cancel, consumer)
 	},
 }
 

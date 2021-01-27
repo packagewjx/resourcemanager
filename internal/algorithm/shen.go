@@ -30,20 +30,20 @@ func NewShenModel(maxTime int) *ShenModel {
 }
 
 func (m *ShenModel) AddAddresses(list []uint64) {
-	for t, a := range list {
+	for _, a := range list {
 		addr := a & cacheLineMask
 		tl, ok := m.lastAccess[addr]
 		if ok {
-			reuseTime := t - tl
-			if t-tl > m.maxTime {
+			reuseTime := m.time - tl
+			if reuseTime > m.maxTime {
 				m.rth[m.maxTime+1]++
 			} else {
 				m.rth[reuseTime]++
 			}
 		}
-		m.lastAccess[addr] = t + m.time
+		m.lastAccess[addr] = m.time
+		m.time++
 	}
-	m.time += len(list)
 }
 
 //ReuseDistanceHistogram 根据当前的所有地址，计算出现在的Reuse Time Histogram

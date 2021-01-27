@@ -16,6 +16,7 @@ limitations under the License.
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
@@ -23,12 +24,15 @@ import (
 	"github.com/packagewjx/resourcemanager/internal/resourcemanager"
 	"github.com/packagewjx/resourcemanager/internal/sampler/memrecord"
 	"github.com/packagewjx/resourcemanager/internal/utils"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"os"
 	"os/signal"
 	"syscall"
 )
+
+var useShenModel bool
 
 // sampleCmd represents the sample command
 var sampleCmd = &cobra.Command{
@@ -51,27 +55,69 @@ func init() {
 	sampleCmd.PersistentFlags().IntP("stop-at", "s", core.RootConfig.MemTrace.TraceCount,
 		"采集内存数据总数")
 	_ = viper.BindPFlag("memtrace.tracecount", sampleCmd.PersistentFlags().Lookup("stop-at"))
+
+	sampleCmd.PersistentFlags().BoolVarP(&useShenModel, "useShenModel", "d", false, "")
 }
 
-func receiveResult(resCh <-chan *memrecord.MemRecordResult, cancelFunc context.CancelFunc, consumer memrecord.RTHCalculatorConsumer) {
+func executeSampleCommand(rq interface{}) error {
+	recorder, err := memrecord.NewPinMemRecorder(&memrecord.Config{
+		BufferSize:     core.RootConfig.MemTrace.BufferSize,
+		WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
+		PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
+		ConcurrentMax:  core.RootConfig.MemTrace.ConcurrentMax,
+		TraceCount:     core.RootConfig.MemTrace.TraceCount,
+	})
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	var consumer memrecord.CacheLineAddressConsumer
+	if useShenModel {
+		consumer = memrecord.NewShenModelConsumer(core.RootConfig.MemTrace.MaxRthTime)
+	} else {
+		consumer = memrecord.NewRTHCalculatorConsumer(memrecord.GetCalculatorFromRootConfig())
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// 注册信号处理
 	sigCh := make(chan os.Signal)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		cancelFunc()
+		cancel()
 	}()
-	m := <-resCh
-	if m.Err != nil {
-		fmt.Println(m.Err)
-		os.Exit(1)
+
+	var ch <-chan *memrecord.MemRecordResult
+	switch v := rq.(type) {
+	case *memrecord.MemRecordAttachRequest:
+		v.Consumer = consumer
+		ch = recorder.RecordProcess(ctx, v)
+	case *memrecord.MemRecordRunRequest:
+		v.Consumer = consumer
+		ch = recorder.RecordCommand(ctx, v)
+	default:
+		panic("错误类型")
 	}
-	fmt.Println("正在输出结果")
+
+	m := <-ch
+	if m.Err != nil {
+		return m.Err
+	}
+
+	if useShenModel {
+		return shenOutput(consumer.(memrecord.ShenModelConsumer))
+	} else {
+		return rthOutput(consumer.(memrecord.RTHCalculatorConsumer), m)
+	}
+}
+
+func rthOutput(consumer memrecord.RTHCalculatorConsumer, m *memrecord.MemRecordResult) error {
 	threadTrace := consumer.GetCalculatorMap()
 	for tid, calculator := range threadTrace {
-		outFile, err := os.Create(fmt.Sprintf("sample_%d.csv", tid))
+		outFile, err := os.Create(fmt.Sprintf("sample_%d.rth.csv", tid))
 		if err != nil {
-			fmt.Println("无法创建输出文件", err)
-			os.Exit(1)
+			return errors.Wrap(err, "无法创建输出文件")
 		}
 		algorithm.WriteAsCsv(calculator.GetRTH(core.RootConfig.MemTrace.MaxRthTime), outFile)
 		_ = outFile.Close()
@@ -82,11 +128,28 @@ func receiveResult(resCh <-chan *memrecord.MemRecordResult, cancelFunc context.C
 		core.RootConfig.MemTrace.MaxRthTime, numWays*numSets*2)
 	outFile, err := os.Create("sample_weighted_mrc.csv")
 	if err != nil {
-		fmt.Println("无法创建输出文件", err)
-		os.Exit(1)
+		return errors.Wrap(err, "无法创建输出文件")
 	}
 	for c, miss := range mrc {
 		_, _ = fmt.Fprintf(outFile, "%d,%.4f\n", c, miss)
 	}
 	_ = outFile.Close()
+	return nil
+}
+
+func shenOutput(consumer memrecord.ShenModelConsumer) error {
+	histogram := consumer.GetReuseTimeHistogram()
+	for tid, rdh := range histogram {
+		outFile, err := os.Create(fmt.Sprintf("sample_%d.rdh.csv", tid))
+		if err != nil {
+			return errors.Wrap(err, "无法创建输出文件")
+		}
+		writer := bufio.NewWriter(outFile)
+		for d, p := range rdh {
+			_, _ = writer.WriteString(fmt.Sprintf("%d, %.20f\n", d, p))
+		}
+		_ = writer.Flush()
+		_ = outFile.Close()
+	}
+	return nil
 }

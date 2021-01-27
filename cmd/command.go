@@ -16,9 +16,7 @@ limitations under the License.
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/sampler/memrecord"
 	"github.com/spf13/cobra"
 	"os"
@@ -35,28 +33,18 @@ var commandCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		recorder, err := memrecord.NewPinMemRecorder(&memrecord.Config{
-			BufferSize:     core.RootConfig.MemTrace.BufferSize,
-			WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
-			PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
-			ConcurrentMax:  core.RootConfig.MemTrace.ConcurrentMax,
-			TraceCount:     core.RootConfig.MemTrace.TraceCount,
-		})
+		rq := &memrecord.MemRecordRunRequest{
+			MemRecordBaseRequest: memrecord.MemRecordBaseRequest{
+				Name: "test",
+			},
+			Cmd:  args[0],
+			Args: args[1:],
+		}
+		err := executeSampleCommand(rq)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		consumer := memrecord.NewRTHCalculatorConsumer(memrecord.GetCalculatorFromRootConfig())
-		resCh := recorder.RecordCommand(ctx, &memrecord.MemRecordRunRequest{
-			MemRecordBaseRequest: memrecord.MemRecordBaseRequest{
-				Name:     "test",
-				Consumer: consumer,
-			},
-			Cmd:  args[0],
-			Args: args[1:],
-		})
-		receiveResult(resCh, cancel, consumer)
 	},
 }
 
