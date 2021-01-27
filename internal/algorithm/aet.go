@@ -75,12 +75,12 @@ func readRTHCsv(file io.Reader) ([]int, error) {
 }
 
 func (a *aetImpl) ProbabilityReuseTimeGreaterThan(t int) float32 {
+	totalSamples := float32(a.numColdMiss + a.numBeyondMax + a.rthPrefixSum[len(a.rthPrefixSum)-1])
 	if t >= len(a.rthPrefixSum) {
-		return float32(a.numBeyondMax+a.numColdMiss) /
-			float32(a.numColdMiss+a.numBeyondMax+a.rthPrefixSum[len(a.rthPrefixSum)-1])
+		return float32(a.numBeyondMax+a.numColdMiss) / totalSamples
 	} else {
 		return (float32(a.numBeyondMax + a.numColdMiss + a.rthPrefixSum[len(a.rthPrefixSum)-1] - a.rthPrefixSum[t])) /
-			float32(a.numColdMiss+a.numBeyondMax+a.rthPrefixSum[len(a.rthPrefixSum)-1])
+			totalSamples
 	}
 }
 

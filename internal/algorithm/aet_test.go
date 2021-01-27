@@ -1,7 +1,9 @@
 package algorithm
 
 import (
+	"github.com/packagewjx/resourcemanager/internal/utils"
 	"github.com/stretchr/testify/assert"
+	"os"
 	"strings"
 	"testing"
 )
@@ -51,12 +53,6 @@ const case1 = `1,50
 `
 
 func TestAetImpl_ProbabilityReuseTimeGreaterThan(t *testing.T) {
-	floatEqual := func(f1, f2 float32) func() bool {
-		return func() bool {
-			return f1-f2 < 0.000001 && f2-f1 < 0.000001
-		}
-	}
-
 	read := strings.NewReader(case1)
 	model, err := NewAETModelFromFile(read)
 	impl := model.(*aetImpl)
@@ -64,11 +60,11 @@ func TestAetImpl_ProbabilityReuseTimeGreaterThan(t *testing.T) {
 	assert.Equal(t, 5, impl.numColdMiss)
 	assert.Equal(t, 10, impl.numBeyondMax)
 	assert.Equal(t, 1220, impl.rthPrefixSum[len(impl.rthPrefixSum)-1])
-	assert.Condition(t, floatEqual(1, model.ProbabilityReuseTimeGreaterThan(0)))
-	assert.Condition(t, floatEqual(0.959514, model.ProbabilityReuseTimeGreaterThan(1)))
-	assert.Condition(t, floatEqual(0.631578, model.ProbabilityReuseTimeGreaterThan(10)))
-	assert.Condition(t, floatEqual(0.012145, model.ProbabilityReuseTimeGreaterThan(50)))
-	assert.Condition(t, floatEqual(0.012145, model.ProbabilityReuseTimeGreaterThan(100)))
+	assert.InDelta(t, 1, model.ProbabilityReuseTimeGreaterThan(0), 0.000001)
+	assert.InDelta(t, 0.959514, model.ProbabilityReuseTimeGreaterThan(1), 0.000001)
+	assert.InDelta(t, 0.631578, model.ProbabilityReuseTimeGreaterThan(10), 0.000001)
+	assert.InDelta(t, 0.012145, model.ProbabilityReuseTimeGreaterThan(50), 0.000001)
+	assert.InDelta(t, 0.012145, model.ProbabilityReuseTimeGreaterThan(100), 0.000001)
 }
 
 func TestAetImpl_AET(t *testing.T) {
@@ -120,8 +116,21 @@ func TestAetImpl_MRC(t *testing.T) {
 	}
 	for i := 2; i <= 16; i++ {
 		assert.Equal(t, model.ProbabilityReuseTimeGreaterThan(model.AET(i)), mrc[i])
+		assert.Equal(t, model.MR(i), mrc[i])
 	}
 	for i := 17; i <= 20; i++ {
 		assert.Equal(t, mrc[16], mrc[i])
 	}
+}
+
+func TestBA(t *testing.T) {
+	trace, err := utils.ParseCTFTrace("/home/wjx/Workspace/valgrind-tracegen/inst/out")
+	assert.NoError(t, err)
+	rth := FullTraceCalculator()
+	for _, addrList := range trace {
+		rth.Update(addrList)
+	}
+	out, _ := os.Create("rth.csv")
+	WriteAsCsv(rth.GetRTH(100000), out)
+	_ = out.Close()
 }

@@ -62,6 +62,7 @@ type ClassifyConfig struct {
 	MPKIVeryHigh               float64
 	MPKIHigh                   float64
 	HPKIVeryHigh               float64
+	HPKIVeryLow                float64
 	IPCVeryLow                 float64
 	IPCLow                     float64
 	NonCriticalAPKI            float64
@@ -130,6 +131,7 @@ var RootConfig = &Config{
 			MPKIVeryHigh:               10,
 			MPKIHigh:                   5,
 			HPKIVeryHigh:               10,
+			HPKIVeryLow:                0.5,
 			IPCVeryLow:                 0.6,
 			IPCLow:                     1.3,
 			NonCriticalAPKI:            1,

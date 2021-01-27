@@ -155,8 +155,8 @@ func (c *impl) determineCharacteristic(p *ProcessResult) MemoryCharacteristic {
 	}
 	squanderer := func() bool {
 		// 与论文一致
-		return (all.LLCHitPerKiloInstructions() >= config.HPKIVeryHigh && all.LLCMissPerKiloInstructions() >= config.MPKIHigh) ||
-			(two.LLCHitPerKiloInstructions() >= config.HPKIVeryHigh && two.LLCMissPerKiloInstructions() >= config.MPKIHigh)
+		return (all.LLCHitPerKiloInstructions() < config.HPKIVeryLow && all.LLCMissPerKiloInstructions() >= config.MPKIHigh) ||
+			(two.LLCHitPerKiloInstructions() < config.HPKIVeryLow && two.LLCMissPerKiloInstructions() >= config.MPKIHigh)
 	}
 	medium := func() bool {
 		ipcMedium := all.InstructionPerCycle() >= config.IPCLow

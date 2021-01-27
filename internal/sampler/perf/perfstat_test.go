@@ -31,3 +31,7 @@ func TestPerfStat(t *testing.T) {
 		assert.NotZero(t, result.LLCMissCycles)
 	}
 }
+
+func TestName(t *testing.T) {
+
+}
