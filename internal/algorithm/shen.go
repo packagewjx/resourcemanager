@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"math/big"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -16,6 +17,16 @@ Xipeng Shen, Jonathan Shaw, et. al.
 */
 
 const cacheLineMask = 0xFFFFFFFFFFFFFFC0
+
+var concurrentControl chan struct{}
+
+func init() {
+	maxCpu := runtime.NumCPU() - 1
+	if maxCpu > 8 {
+		maxCpu = 8
+	}
+	concurrentControl = make(chan struct{}, maxCpu)
+}
 
 type ShenModel struct {
 	lastAccess map[uint64]int
@@ -95,9 +106,11 @@ func (m *ShenModel) ReuseDistanceHistogram() []float64 {
 	for d := 1; d <= N; d++ {
 		wg.Add(1)
 		go func(d int) {
+			concurrentControl <- struct{}{}
 			result[d] = m.prk(d, N, pt, p3, c)
 			cnt.Inc()
 			wg.Done()
+			<-concurrentControl
 		}(d)
 	}
 	wg.Wait()
@@ -182,8 +195,10 @@ func newCombination(n int) *combination {
 			}
 			wg.Add(1)
 			go func() {
+				concurrentControl <- struct{}{}
 				calFunc(i, len(last))
 				wg.Done()
+				<-concurrentControl
 			}()
 			wg.Wait()
 		}
