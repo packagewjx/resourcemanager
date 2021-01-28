@@ -1,9 +1,13 @@
 package algorithm
 
 import (
+	"context"
+	"go.uber.org/atomic"
+	"log"
 	"math"
 	"math/big"
 	"sync"
+	"time"
 )
 
 /*
@@ -71,22 +75,42 @@ func (m *ShenModel) ReuseDistanceHistogram() []float64 {
 	}
 	c := newCombination(N)
 
+	// 进度汇报
+	cnt := atomic.NewInt32(0)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		tick := time.Tick(time.Second)
+		for {
+			select {
+			case <-tick:
+				log.Printf("prk计算进度：%10d/%10d\n", cnt.Load(), N)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	wg := sync.WaitGroup{}
 	result := make([]float64, N+1)
 	for d := 1; d <= N; d++ {
 		wg.Add(1)
 		go func(d int) {
 			result[d] = m.prk(d, N, pt, p3, c)
+			cnt.Inc()
 			wg.Done()
 		}(d)
 	}
 	wg.Wait()
+	cancel()
 	return result
 }
 
 func (m *ShenModel) prk(k, N int, pt, p3 []float64, c *combination) float64 {
 	res := float64(0)
 	for delta := 1; delta <= m.maxTime; delta++ {
+		if pt[delta] == 0 {
+			continue
+		}
 		res += m.pkdelta(k, delta, N, p3, c) * pt[delta]
 	}
 	return res
@@ -114,11 +138,28 @@ func newCombination(n int) *combination {
 	}
 	last := []*big.Float{bigFloat1}
 	var c []*big.Float
+
+	// 报告进度使用
+	cnt := atomic.NewInt32(0)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		tick := time.Tick(500 * time.Millisecond)
+		for {
+			select {
+			case <-tick:
+				log.Printf("组合数计算已完成：%10d\n", cnt.Load())
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	// 使用组合数性质加法，减少浮点数阶乘乘法
 	calFunc := func(start, end int) {
 		for i := start; i < end; i++ {
 			c[i] = big.NewFloat(0)
 			c[i].Add(last[i], last[i-1])
+			cnt.Inc()
 		}
 	}
 	for curr := 2; curr <= n; curr++ {
@@ -153,6 +194,7 @@ func newCombination(n int) *combination {
 		}
 		last = c
 	}
+	cancel()
 	return (*combination)(&last)
 }
 
