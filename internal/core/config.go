@@ -27,7 +27,6 @@ type RthCalculatorType string
 var (
 	RthCalculatorTypeReservoir RthCalculatorType = "reservoir"
 	RthCalculatorTypeFull      RthCalculatorType = "full"
-	RthCalculatorTypeNoUpdate  RthCalculatorType = "noUpdate"
 )
 
 type MicroArchitectureName string
@@ -37,13 +36,28 @@ var (
 	MicroArchitectureNameCascadeLake MicroArchitectureName = "CascadeLake"
 )
 
+type MemTraceSampler string
+
+var (
+	MemTraceSamplerPerf MemTraceSampler = "perf"
+	MemTraceSamplerPin  MemTraceSampler = "pin"
+)
+
 type MemTraceConfig struct {
 	TraceCount        int
 	MaxRthTime        int
 	ConcurrentMax     int
 	RthCalculatorType RthCalculatorType
 	ReservoirSize     int
-	PinConfig         `mapstructure:",squash" yaml:",inline"`
+	Sampler           MemTraceSampler
+	PinConfig         PinConfig
+	PerfRecordConfig  PerfRecordConfig
+}
+
+type PerfRecordConfig struct {
+	SwitchOutput  string
+	OverflowCount int
+	PerfExecPath  string
 }
 
 type PinConfig struct {
@@ -112,14 +126,20 @@ var RootConfig = &Config{
 	MemTrace: MemTraceConfig{
 		TraceCount:        1000000000,
 		MaxRthTime:        100000,
-		RthCalculatorType: RthCalculatorTypeReservoir,
 		ConcurrentMax:     int(math.Min(math.Max(1, float64(runtime.NumCPU())/4), 4)),
+		RthCalculatorType: RthCalculatorTypeReservoir,
 		ReservoirSize:     100000,
+		Sampler:           MemTraceSamplerPerf,
 		PinConfig: PinConfig{
 			PinPath:        "/home/wjx/bin/pin",
 			PinToolPath:    "/home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so",
 			BufferSize:     10000,
 			WriteThreshold: 20000,
+		},
+		PerfRecordConfig: PerfRecordConfig{
+			SwitchOutput:  "10M",
+			OverflowCount: 5,
+			PerfExecPath:  "/home/wjx/linux-5.4.0/tools/perf",
 		},
 	},
 	PerfStat: PerfStatConfig{
@@ -192,7 +212,7 @@ func checkNotZero(val reflect.Value, path []string) error {
 }
 
 func (config *Config) Check() error {
-	pinToolPath := config.MemTrace.PinToolPath
+	pinToolPath := config.MemTrace.PinConfig.PinToolPath
 	_, err := os.Stat(pinToolPath)
 	if os.IsNotExist(err) {
 		return errors.Wrap(err, fmt.Sprintf("无法访问PinTool路径%s", pinToolPath))

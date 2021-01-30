@@ -32,8 +32,10 @@ func TestShenModelWithRandomAddress(t *testing.T) {
 	for i := 0; i < len(addr); i++ {
 		addr[i] = r.Uint64() & addrMask
 	}
-	model := NewShenModel(1000)
-	model.AddAddresses(addr)
+	calculator := ReservoirCalculator(10000)
+	calculator.Update(addr)
+	rth := calculator.GetRTH(10000)
+	model := NewShenModel(rth)
 	assert.NotNil(t, model)
 	sum := float64(0)
 	rdh := model.ReuseDistanceHistogram()
@@ -45,7 +47,7 @@ func TestShenModelWithRandomAddress(t *testing.T) {
 }
 
 func TestShenModelWithLsData(t *testing.T) {
-	file := test.GetDataDir() + "/ls.dat"
+	file := test.GetTestDataDir() + "/ls.dat"
 	reader, err := utils.NewPinBinaryReader(file)
 	assert.NoError(t, err)
 	all := reader.ReadAll()
@@ -53,8 +55,9 @@ func TestShenModelWithLsData(t *testing.T) {
 		for i := 0; i < len(addr); i++ {
 			addr[i] &= 0xFFFFFFFFFFFF
 		}
-		model := NewShenModel(10000)
-		model.AddAddresses(addr)
+		c := ReservoirCalculator(100000)
+		c.Update(addr)
+		model := NewShenModel(c.GetRTH(100000))
 		rdh := model.ReuseDistanceHistogram()
 		sum := float64(0)
 		for _, f := range rdh {
@@ -78,8 +81,9 @@ func BenchmarkReuseDistanceHistogram(b *testing.B) {
 	for i := 0; i < len(addr); i++ {
 		addr[i] = r.Uint64() & addrMask
 	}
-	model := NewShenModel(1000)
-	model.AddAddresses(addr)
+	c := FullTraceCalculator()
+	c.Update(addr)
+	model := NewShenModel(c.GetRTH(100000))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		model.ReuseDistanceHistogram()

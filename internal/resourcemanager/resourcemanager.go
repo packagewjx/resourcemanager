@@ -75,9 +75,9 @@ func New(config *Config) (ResourceManager, error) {
 		return nil, errors.Wrap(err, "创建分类器出错")
 	}
 	recorder, err := memrecord.NewPinMemRecorder(&memrecord.Config{
-		BufferSize:     core.RootConfig.MemTrace.BufferSize,
-		WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
-		PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
+		BufferSize:     core.RootConfig.MemTrace.PinConfig.BufferSize,
+		WriteThreshold: core.RootConfig.MemTrace.PinConfig.WriteThreshold,
+		PinToolPath:    core.RootConfig.MemTrace.PinConfig.PinToolPath,
 		TraceCount:     core.RootConfig.MemTrace.TraceCount,
 		ConcurrentMax:  core.RootConfig.MemTrace.ConcurrentMax,
 	})
@@ -295,8 +295,8 @@ func (r *impl) memTrace(ctx context.Context, group *processGroupContext) {
 			go func(p *processCharacteristic) {
 				r.logger.Printf("对进程组 %s 进程 %d 开始内存追踪", group.group.Id, p.pid)
 				consumer := memrecord.NewRTHCalculatorConsumer(memrecord.GetCalculatorFromRootConfig())
-				ch := r.memRecorder.RecordProcess(ctx, &memrecord.MemRecordAttachRequest{
-					MemRecordBaseRequest: memrecord.MemRecordBaseRequest{
+				ch, _ := r.memRecorder.RecordProcess(ctx, &memrecord.AttachRequest{
+					BaseRequest: memrecord.BaseRequest{
 						Consumer: consumer,
 						Name:     fmt.Sprintf("%s-%d", group.group.Id, p.pid),
 					},

@@ -16,8 +16,6 @@ Locality Approximation Using Time
 Xipeng Shen, Jonathan Shaw, et. al.
 */
 
-const cacheLineMask = 0xFFFFFFFFFFFFFFC0
-
 var concurrentControl chan struct{}
 
 func init() {
@@ -29,36 +27,11 @@ func init() {
 }
 
 type ShenModel struct {
-	lastAccess map[uint64]int
-	maxTime    int
-	time       int
-	rth        []int
+	rth []int
 }
 
-func NewShenModel(maxTime int) *ShenModel {
-	return &ShenModel{
-		lastAccess: make(map[uint64]int),
-		maxTime:    maxTime,
-		time:       0,
-		rth:        make([]int, maxTime+2),
-	}
-}
-
-func (m *ShenModel) AddAddresses(list []uint64) {
-	for _, a := range list {
-		addr := a & cacheLineMask
-		tl, ok := m.lastAccess[addr]
-		if ok {
-			reuseTime := m.time - tl
-			if reuseTime > m.maxTime {
-				m.rth[m.maxTime+1]++
-			} else {
-				m.rth[reuseTime]++
-			}
-		}
-		m.lastAccess[addr] = m.time
-		m.time++
-	}
+func NewShenModel(rth []int) *ShenModel {
+	return &ShenModel{rth: rth}
 }
 
 //ReuseDistanceHistogram 根据当前的所有地址，计算出现在的Reuse Time Histogram
@@ -78,10 +51,10 @@ func (m *ShenModel) ReuseDistanceHistogram() []float64 {
 		ptPostFixSum[i] = pt[i] + ptPostFixSum[i+1]
 	}
 
-	N := len(m.lastAccess)
-	p3 := make([]float64, m.maxTime+1)
+	N := rthSum
+	p3 := make([]float64, len(m.rth))
 	p3[1] = 1 / float64(N-1) * ptPostFixSum[2]
-	for t := 2; t <= m.maxTime; t++ {
+	for t := 2; t < len(m.rth)-1; t++ {
 		p3[t] = p3[t-1] + 1/float64(N-1)*ptPostFixSum[t+1]
 	}
 	c := newCombination(N)
@@ -120,7 +93,7 @@ func (m *ShenModel) ReuseDistanceHistogram() []float64 {
 
 func (m *ShenModel) prk(k, N int, pt, p3 []float64, c *combination) float64 {
 	res := float64(0)
-	for delta := 1; delta <= m.maxTime; delta++ {
+	for delta := 1; delta <= len(m.rth)-2; delta++ {
 		if pt[delta] == 0 {
 			continue
 		}

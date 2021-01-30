@@ -33,7 +33,7 @@ type pinContext struct {
 	name       string
 	pinCmd     *exec.Cmd
 	kill       bool
-	resCh      chan *MemRecordResult
+	resCh      chan *Result
 	readCnt    uint // 性能优化使用，监测读取速度
 	fifoPath   string
 	iCountPath string
@@ -161,7 +161,7 @@ func (m *pinRecorder) pinTraceReader(ctx context.Context, pinCtx *pinContext, ca
 	select {
 	case <-ctx.Done():
 		m.logger.Printf("%s 采集未开始即结束", pinCtx.name)
-		pinCtx.resCh <- &MemRecordResult{
+		pinCtx.resCh <- &Result{
 			Err: fmt.Errorf("采集未开始就结束"),
 		}
 		return
@@ -171,14 +171,14 @@ func (m *pinRecorder) pinTraceReader(ctx context.Context, pinCtx *pinContext, ca
 	// 从管道读取数据
 	fin, err := os.OpenFile(pinCtx.fifoPath, os.O_RDONLY, os.ModeNamedPipe)
 	if err != nil {
-		pinCtx.resCh <- &MemRecordResult{
+		pinCtx.resCh <- &Result{
 			Err: errors.Wrap(err, "打开管道失败"),
 		}
 		return
 	}
 	err = m.readFromPipe(ctx, fin, pinCtx)
 	if err != nil {
-		pinCtx.resCh <- &MemRecordResult{
+		pinCtx.resCh <- &Result{
 			Err: err,
 		}
 	}
@@ -195,7 +195,7 @@ func (m *pinRecorder) pinTraceReader(ctx context.Context, pinCtx *pinContext, ca
 
 	m.logger.Printf("采集结束，总共采集 %d 条内存访问地址", pinCtx.readCnt)
 	_ = fin.Close()
-	pinCtx.resCh <- &MemRecordResult{
+	pinCtx.resCh <- &Result{
 		ThreadInstructionCount: counts,
 		TotalInstructions:      totalCount,
 		Err:                    nil,
@@ -272,7 +272,7 @@ outerLoop:
 		close(errCh)
 		if err != nil {
 			_ = os.Remove(pinCtx.fifoPath)
-			pinCtx.resCh <- &MemRecordResult{
+			pinCtx.resCh <- &Result{
 				Err: err,
 			}
 			close(pinCtx.resCh)
@@ -302,21 +302,21 @@ func (m *pinRecorder) recordPreparation(requestName string) (fifoPath, pinToolPa
 	return
 }
 
-func (m *pinRecorder) RecordCommand(ctx context.Context, request *MemRecordRunRequest) <-chan *MemRecordResult {
-	resCh := make(chan *MemRecordResult, 1)
+func (m *pinRecorder) RecordCommand(ctx context.Context, request *RunRequest) (<-chan *Result, error) {
+	resCh := make(chan *Result, 1)
 	fifoPath, pinToolPath, iCountPath, err := m.recordPreparation(request.Name)
 	if err != nil {
-		resCh <- &MemRecordResult{
+		resCh <- &Result{
 			Err: err,
 		}
 		close(resCh)
-		return resCh
+		return resCh, nil
 	}
 	pinArgs := []string{"-t", pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize",
 		fmt.Sprintf("%d", m.bufferSize), "-stopat",
 		fmt.Sprintf("%d", m.traceCount), "-icountcsv", iCountPath, "--", request.Cmd}
 	pinArgs = append(pinArgs, request.Args...)
-	pinCmd := exec.Command(core.RootConfig.MemTrace.PinPath, pinArgs...)
+	pinCmd := exec.Command(core.RootConfig.MemTrace.PinConfig.PinPath, pinArgs...)
 	pinCtx := &pinContext{
 		name:       request.Name,
 		pinCmd:     pinCmd,
@@ -328,20 +328,20 @@ func (m *pinRecorder) RecordCommand(ctx context.Context, request *MemRecordRunRe
 	}
 
 	m.startMemTrace(ctx, pinCtx)
-	return resCh
+	return resCh, nil
 }
 
-func (m *pinRecorder) RecordProcess(ctx context.Context, request *MemRecordAttachRequest) <-chan *MemRecordResult {
-	resCh := make(chan *MemRecordResult, 1)
+func (m *pinRecorder) RecordProcess(ctx context.Context, request *AttachRequest) (<-chan *Result, error) {
+	resCh := make(chan *Result, 1)
 	fifoPath, pinToolPath, iCountPath, err := m.recordPreparation(request.Name)
 	if err != nil {
-		resCh <- &MemRecordResult{
+		resCh <- &Result{
 			Err: err,
 		}
 		close(resCh)
-		return resCh
+		return resCh, nil
 	}
-	pinCmd := exec.Command(core.RootConfig.MemTrace.PinPath, "-pid", fmt.Sprintf("%d", request.Pid), "-t",
+	pinCmd := exec.Command(core.RootConfig.MemTrace.PinConfig.PinPath, "-pid", fmt.Sprintf("%d", request.Pid), "-t",
 		pinToolPath, "-binary", "-fifo", fifoPath, "-buffersize", fmt.Sprintf("%d", m.bufferSize),
 		"-stopat", fmt.Sprintf("%d", m.traceCount), "-icountcsv", iCountPath)
 
@@ -356,7 +356,7 @@ func (m *pinRecorder) RecordProcess(ctx context.Context, request *MemRecordAttac
 	}
 
 	m.startMemTrace(ctx, pinCtx)
-	return resCh
+	return resCh, nil
 }
 
 var _ MemRecorder = &pinRecorder{}

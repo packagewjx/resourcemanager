@@ -13,9 +13,9 @@ import (
 
 func TestRecord(t *testing.T) {
 	recorder, err := NewPinMemRecorder(&Config{
-		BufferSize:     core.RootConfig.MemTrace.BufferSize,
-		WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
-		PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
+		BufferSize:     core.RootConfig.MemTrace.PinConfig.BufferSize,
+		WriteThreshold: core.RootConfig.MemTrace.PinConfig.WriteThreshold,
+		PinToolPath:    core.RootConfig.MemTrace.PinConfig.PinToolPath,
 		TraceCount:     100000,
 		ConcurrentMax:  4,
 	})
@@ -24,8 +24,8 @@ func TestRecord(t *testing.T) {
 	consumer := NewRTHCalculatorConsumer(func(tid int) algorithm.RTHCalculator {
 		return algorithm.ReservoirCalculator(core.RootConfig.MemTrace.ReservoirSize)
 	})
-	resCh := recorder.RecordProcess(context.Background(), &MemRecordAttachRequest{
-		MemRecordBaseRequest: MemRecordBaseRequest{
+	resCh, _ := recorder.RecordProcess(context.Background(), &AttachRequest{
+		BaseRequest: BaseRequest{
 			Name:     "test",
 			Consumer: consumer,
 		},

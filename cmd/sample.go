@@ -16,7 +16,6 @@ limitations under the License.
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"github.com/packagewjx/resourcemanager/internal/algorithm"
@@ -46,10 +45,10 @@ func init() {
 	sampleCmd.PersistentFlags().IntP("max-time", "t", core.RootConfig.MemTrace.MaxRthTime,
 		"最大RTH时间")
 	_ = viper.BindPFlag("memtrace.maxrthtime", sampleCmd.PersistentFlags().Lookup("max-time"))
-	sampleCmd.PersistentFlags().IntP("buffer-size", "b", core.RootConfig.MemTrace.BufferSize,
+	sampleCmd.PersistentFlags().IntP("buffer-size", "b", core.RootConfig.MemTrace.PinConfig.BufferSize,
 		"pin缓冲大小")
 	_ = viper.BindPFlag("memtrace.buffersize", sampleCmd.PersistentFlags().Lookup("buffer-size"))
-	sampleCmd.PersistentFlags().IntP("write-threshold", "w", core.RootConfig.MemTrace.WriteThreshold,
+	sampleCmd.PersistentFlags().IntP("write-threshold", "w", core.RootConfig.MemTrace.PinConfig.WriteThreshold,
 		"消费数据阈值")
 	_ = viper.BindPFlag("memtrace.writethreshold", sampleCmd.PersistentFlags().Lookup("write-threshold"))
 	sampleCmd.PersistentFlags().IntP("stop-at", "s", core.RootConfig.MemTrace.TraceCount,
@@ -60,24 +59,29 @@ func init() {
 }
 
 func executeSampleCommand(rq interface{}) error {
-	recorder, err := memrecord.NewPinMemRecorder(&memrecord.Config{
-		BufferSize:     core.RootConfig.MemTrace.BufferSize,
-		WriteThreshold: core.RootConfig.MemTrace.WriteThreshold,
-		PinToolPath:    core.RootConfig.MemTrace.PinToolPath,
-		ConcurrentMax:  core.RootConfig.MemTrace.ConcurrentMax,
-		TraceCount:     core.RootConfig.MemTrace.TraceCount,
-	})
+	var recorder memrecord.MemRecorder
+	var err error
+	memTraceConfig := core.RootConfig.MemTrace
+	if memTraceConfig.Sampler == core.MemTraceSamplerPerf {
+		recorder, err = memrecord.NewPerfRecorder(memTraceConfig.PerfRecordConfig.OverflowCount,
+			memTraceConfig.PerfRecordConfig.SwitchOutput,
+			memTraceConfig.PerfRecordConfig.PerfExecPath)
+	} else {
+		recorder, err = memrecord.NewPinMemRecorder(&memrecord.Config{
+			BufferSize:     memTraceConfig.PinConfig.BufferSize,
+			WriteThreshold: memTraceConfig.PinConfig.WriteThreshold,
+			PinToolPath:    memTraceConfig.PinConfig.PinToolPath,
+			ConcurrentMax:  memTraceConfig.ConcurrentMax,
+			TraceCount:     memTraceConfig.TraceCount,
+		})
+	}
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
 	var consumer memrecord.CacheLineAddressConsumer
-	if useShenModel {
-		consumer = memrecord.NewShenModelConsumer(core.RootConfig.MemTrace.MaxRthTime)
-	} else {
-		consumer = memrecord.NewRTHCalculatorConsumer(memrecord.GetCalculatorFromRootConfig())
-	}
+	consumer = memrecord.NewRTHCalculatorConsumer(memrecord.GetCalculatorFromRootConfig())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	// 注册信号处理
@@ -88,14 +92,14 @@ func executeSampleCommand(rq interface{}) error {
 		cancel()
 	}()
 
-	var ch <-chan *memrecord.MemRecordResult
+	var ch <-chan *memrecord.Result
 	switch v := rq.(type) {
-	case *memrecord.MemRecordAttachRequest:
+	case *memrecord.AttachRequest:
 		v.Consumer = consumer
-		ch = recorder.RecordProcess(ctx, v)
-	case *memrecord.MemRecordRunRequest:
+		ch, _ = recorder.RecordProcess(ctx, v)
+	case *memrecord.RunRequest:
 		v.Consumer = consumer
-		ch = recorder.RecordCommand(ctx, v)
+		ch, _ = recorder.RecordCommand(ctx, v)
 	default:
 		panic("错误类型")
 	}
@@ -105,14 +109,10 @@ func executeSampleCommand(rq interface{}) error {
 		return m.Err
 	}
 
-	if useShenModel {
-		return shenOutput(consumer.(memrecord.ShenModelConsumer))
-	} else {
-		return rthOutput(consumer.(memrecord.RTHCalculatorConsumer), m)
-	}
+	return rthOutput(consumer.(memrecord.RTHCalculatorConsumer), m)
 }
 
-func rthOutput(consumer memrecord.RTHCalculatorConsumer, m *memrecord.MemRecordResult) error {
+func rthOutput(consumer memrecord.RTHCalculatorConsumer, m *memrecord.Result) error {
 	threadTrace := consumer.GetCalculatorMap()
 	for tid, calculator := range threadTrace {
 		outFile, err := os.Create(fmt.Sprintf("sample_%d.rth.csv", tid))
@@ -134,22 +134,5 @@ func rthOutput(consumer memrecord.RTHCalculatorConsumer, m *memrecord.MemRecordR
 		_, _ = fmt.Fprintf(outFile, "%d,%.4f\n", c, miss)
 	}
 	_ = outFile.Close()
-	return nil
-}
-
-func shenOutput(consumer memrecord.ShenModelConsumer) error {
-	histogram := consumer.GetReuseTimeHistogram()
-	for tid, rdh := range histogram {
-		outFile, err := os.Create(fmt.Sprintf("sample_%d.rdh.csv", tid))
-		if err != nil {
-			return errors.Wrap(err, "无法创建输出文件")
-		}
-		writer := bufio.NewWriter(outFile)
-		for d, p := range rdh {
-			_, _ = writer.WriteString(fmt.Sprintf("%d, %.20f\n", d, p))
-		}
-		_ = writer.Flush()
-		_ = outFile.Close()
-	}
 	return nil
 }

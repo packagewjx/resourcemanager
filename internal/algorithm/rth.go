@@ -17,6 +17,7 @@ func ReservoirCalculator(reservoirSize int) RTHCalculator {
 		time:      0,
 		size:      reservoirSize,
 		reservoir: map[uint64]*reservoirEntry{},
+		addrSet:   map[uint64]struct{}{},
 	}
 }
 
@@ -37,15 +38,16 @@ type reservoirCalculator struct {
 	time      uint64
 	size      int
 	reservoir map[uint64]*reservoirEntry
+	addrSet   map[uint64]struct{}
 }
 
 func (r *reservoirCalculator) Update(traces []uint64) {
-	var numTagged, numUnTagged, numRemoved, numNew int
 	for i := 0; i < len(traces); i++ {
 		entry := r.reservoir[traces[i]]
 		if entry == nil {
+			r.addrSet[traces[i]] = struct{}{}
 			if r.size == len(r.reservoir) {
-				if rand.Float32() > (float32(r.size) / float32(r.time)) {
+				if rand.Float32() > (float32(r.size) / float32(len(r.addrSet))) {
 					continue
 				}
 				// 随机丢弃记录
@@ -53,10 +55,8 @@ func (r *reservoirCalculator) Update(traces []uint64) {
 					delete(r.reservoir, k)
 					break
 				}
-				numRemoved++
 			}
 			// 加入新的
-			numNew++
 			entry = &reservoirEntry{
 				state:     reservoirStateUnTagged,
 				firstTime: r.time,
@@ -64,11 +64,10 @@ func (r *reservoirCalculator) Update(traces []uint64) {
 			}
 			r.reservoir[traces[i]] = entry
 		} else if entry.state == reservoirStateUnTagged {
-			numUnTagged++
 			entry.state = reservoirStateTagged
 			entry.lastTime = r.time
 		} else {
-			numTagged++
+			// entry not nil and tagged: nop
 		}
 		r.time++
 	}
@@ -131,19 +130,4 @@ func WriteAsCsv(rth []int, writer io.Writer) {
 		_, _ = bufWriter.WriteString(fmt.Sprintf("%d,%d\n", t, c))
 	}
 	_ = bufWriter.Flush()
-}
-
-// 用于确认消费最快速率的Calculator
-type NoUpdateCalculator struct {
-}
-
-func (f NoUpdateCalculator) Update(_ []uint64) {
-}
-
-func (f NoUpdateCalculator) GetRTH(maxTime int) []int {
-	res := make([]int, maxTime+2)
-	for i := 0; i < len(res); i++ {
-		res[i] = 1
-	}
-	return res
 }

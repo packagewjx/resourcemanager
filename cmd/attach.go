@@ -40,8 +40,8 @@ var attachCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		rq := &memrecord.MemRecordAttachRequest{
-			MemRecordBaseRequest: memrecord.MemRecordBaseRequest{
+		rq := &memrecord.AttachRequest{
+			BaseRequest: memrecord.BaseRequest{
 				Name: "sample",
 			},
 			Pid: attachPid,

@@ -33,8 +33,8 @@ var commandCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		rq := &memrecord.MemRecordRunRequest{
-			MemRecordBaseRequest: memrecord.MemRecordBaseRequest{
+		rq := &memrecord.RunRequest{
+			BaseRequest: memrecord.BaseRequest{
 				Name: "test",
 			},
 			Cmd:  args[0],

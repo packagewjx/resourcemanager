@@ -1,0 +1,68 @@
+memtrace:
+    tracecount: 1000000000
+    maxrthtime: 100000
+    concurrentmax: 1
+    rthcalculatortype: reservoir
+    reservoirsize: 100000
+    sampler: perf
+    pinconfig:
+        pinpath: /home/wjx/bin/pin
+        pintoolpath: /home/wjx/Workspace/pin-3.17/source/tools/MemTrace2/obj-intel64/MemTrace2.so
+        buffersize: 10000
+        writethreshold: 20000
+    perfrecordconfig:
+        switchoutput: 10M
+        overflowcount: 5
+        perfexecpath: /home/wjx/linux-5.4.0/tools/perf
+perfstat:
+    microarchitecture: SkyLake
+    sampletime: 30s
+algorithm:
+    classify:
+        mpkiveryhigh: 10
+        mpkihigh: 5
+        hpkiveryhigh: 10
+        hpkiverylow: 0.5
+        ipcverylow: 0.6
+        ipclow: 1.3
+        noncriticalapki: 1
+        nochangethreshold: 0.1
+        significantchangethreshold: 0.3
+        apkilow: 1
+    dcaps:
+        maxiteration: 200
+        initialstep: 10000
+        minstep: 100
+        stepreductionratio: 0.8
+        initialtemperature: 10000
+        temperaturemin: 100
+        temperaturereductionratio: 0.8
+        k: 1
+        probabilitychangescheme: 0.2
+        aggregatechangeofoccupancythreshold: 100
+kubernetes:
+    tokenfile: ""
+    cafile: ""
+    insecure: false
+    host: https://localhost:8443
+manager:
+    alloccooldown: 1m0s
+    allocsquash: 50ms
+    changeprocesscountthreshold: 100
+    targetprograms:
+      - blackscholes
+      - bodytrack
+      - canneal
+      - dedup
+      - facesim
+      - ferret
+      - fluidanimate
+      - freqmine
+      - rtview
+      - streamcluster
+      - swaptions
+      - vips
+      - x264
+    classifyafter: 5s
+debug:
+    ignorepqoserror: false
