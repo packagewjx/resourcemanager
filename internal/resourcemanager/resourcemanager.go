@@ -81,12 +81,12 @@ func (r *impl) gracefulShutdown() {
 func (r *impl) handleProcessStatus(ctx context.Context, status *watcher.ProcessGroupStatus) {
 	switch status.Status {
 	case watcher.ProcessGroupStatusAdd:
-		childCtx, cancel := context.WithCancel(ctx)
+		//childCtx, cancel := context.WithCancel(ctx)
 		processGroupCtx := &processGroupContext{
-			group:            status.Group.Clone().(*core.ProcessGroup),
-			state:            processGroupStateNew,
-			processes:        map[int]*processCharacteristic{},
-			cancelManageFunc: cancel,
+			group:     status.Group.Clone().(*core.ProcessGroup),
+			state:     processGroupStateNew,
+			processes: map[int]*processCharacteristic{},
+			//cancelManageFunc: cancel,
 		}
 		for _, pid := range processGroupCtx.group.Pid {
 			processGroupCtx.processes[pid] = &processCharacteristic{
@@ -101,10 +101,10 @@ func (r *impl) handleProcessStatus(ctx context.Context, status *watcher.ProcessG
 				r.wg.Done()
 				processGroupCtx.cancelManageFunc = nil
 			}()
-			if r.classify(childCtx, processGroupCtx) != nil {
-				return
-			}
-			r.memTrace(childCtx, processGroupCtx)
+			//if r.classify(childCtx, processGroupCtx) != nil {
+			//	return
+			//}
+			//r.memTrace(childCtx, processGroupCtx)
 			r.reAllocTimerRoutine.requestRun()
 		}()
 	case watcher.ProcessGroupStatusRemove:
