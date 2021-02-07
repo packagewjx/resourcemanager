@@ -1,0 +1,1 @@
+ps -a -o pid,cmd:160 | awk -f perf.awk
