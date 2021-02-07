@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/packagewjx/resourcemanager/internal/algorithm"
 	"github.com/packagewjx/resourcemanager/internal/classifier"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/pqos"
 	"github.com/packagewjx/resourcemanager/internal/resourcemanager/watcher"
 	"github.com/packagewjx/resourcemanager/internal/sampler/memrecord"
-	"github.com/packagewjx/resourcemanager/internal/sampler/perf"
 	"github.com/packagewjx/resourcemanager/internal/utils"
 	"github.com/pkg/errors"
 	"log"
@@ -29,32 +29,7 @@ var (
 	processGroupStateErrored     processGroupState = "error"
 )
 
-type processGroupContext struct {
-	group            *core.ProcessGroup
-	processes        map[int]*processCharacteristic
-	state            processGroupState
-	cancelManageFunc context.CancelFunc
-}
-
 var numWays, numSets, _ = utils.GetL3Cap()
-
-type processCharacteristic struct {
-	pid            int
-	characteristic classifier.MemoryCharacteristic
-	mrc            []float32
-	perfStat       *perf.StatResult
-}
-
-func (p *processCharacteristic) Clone() core.Cloneable {
-	newMrc := make([]float32, len(p.mrc))
-	copy(newMrc, p.mrc)
-	return &processCharacteristic{
-		pid:            p.pid,
-		characteristic: p.characteristic,
-		mrc:            newMrc,
-		perfStat:       p.perfStat.Clone().(*perf.StatResult),
-	}
-}
 
 type impl struct {
 	watcher                      watcher.ProcessGroupWatcher
@@ -65,6 +40,7 @@ type impl struct {
 	processChangeCountWhenUpdate int
 	logger                       *log.Logger
 	wg                           sync.WaitGroup
+	currentSchemes               []*pqos.CLOSScheme
 }
 
 var _ ResourceManager = &impl{}
@@ -94,8 +70,7 @@ func New(config *Config) (ResourceManager, error) {
 		wg:                           sync.WaitGroup{},
 	}
 
-	//r.reAllocTimerRoutine = newTimerRoutine(core.RootConfig.Manager.AllocCoolDown, core.RootConfig.Manager.AllocSquash, r.doReAlloc)
-	r.reAllocTimerRoutine = newTimerRoutine(core.RootConfig.Manager.AllocCoolDown, core.RootConfig.Manager.AllocSquash, r.writeResult)
+	r.reAllocTimerRoutine = newTimerRoutine(core.RootConfig.Manager.AllocCoolDown, core.RootConfig.Manager.AllocSquash, r.doReAlloc)
 	return r, nil
 }
 
@@ -190,16 +165,18 @@ func (r *impl) doReAlloc() {
 		return true
 	})
 
-	// TODO 使用DCAPS计算分配方案
-
 	r.logger.Println("分配方案计算完成，正在执行分配")
+	programMetricList := r.processGroups.getProgramMetricList()
+	r.currentSchemes = algorithm.DCAPS(programMetricList, r.currentSchemes, numWays, numSets, 8)
 
-	// TODO 使用librm分配
-
+	err := pqos.SetCLOSScheme(r.currentSchemes)
+	if err != nil {
+		r.logger.Println("无法设置CLOS分配", err)
+	}
 	r.logger.Println("资源分配完成")
 }
 
-// 用于采集信息
+// 调试用,用于采集信息
 func (r *impl) writeResult() {
 	var perfStatCsv *os.File
 	name := "perfstat.csv"
