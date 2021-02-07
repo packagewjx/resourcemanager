@@ -104,7 +104,10 @@ func (p *perfStatRunner) Start(ctx context.Context) <-chan map[int]*StatResult {
 			p.logger.Printf("对进程组 %s 的监控中途被结束", p.group.Id)
 		}
 		for _, command := range commands {
-			_ = syscall.Kill(command.Process.Pid, syscall.SIGINT)
+			for command.Process == nil {
+				// ll to prevent Process nil
+				_ = syscall.Kill(command.Process.Pid, syscall.SIGINT)
+			}
 		}
 		p.wg.Wait()
 		resultMap := make(map[int]*StatResult)
