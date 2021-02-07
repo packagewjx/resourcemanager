@@ -177,7 +177,7 @@ var RootConfig = &Config{
 		AllocSquash:                 50 * time.Millisecond,
 		ChangeProcessCountThreshold: 100, // 暂定
 		TargetPrograms: []string{"perlbench_r_base.shiyan-m64", "cpugcc_r_base.shiyan-m64", "mcf_r_base.shiyan-m64",
-			"omnetpp_r_base.shiyan-m64", "x264_r_base.shiyan-m64", "deepsjeng_r_base.shiyan-m64",
+			"omnetpp_r_base.shiyan-m64", "x264_r_base.shiyan-m64", "deepsjeng_r_base.shiyan-m64", "cpuxalan_r_base.shiyan-m64",
 			"leela_r_base.shiyan-m64", "exchange2_r_base.shiyan-m64", "xz_r_base.shiyan-m64"},
 		ClassifyAfter: 5 * time.Second,
 	},

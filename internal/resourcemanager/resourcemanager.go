@@ -333,12 +333,12 @@ func (r *impl) directAlloc() []*pqos.CLOSScheme {
 		if strings.HasPrefix(name, "perlbench") || strings.HasPrefix(name, "cpugcc") {
 			closPos = 1
 		} else if strings.HasPrefix(name, "mcf") || strings.HasPrefix(name, "omnetpp") ||
-			strings.HasPrefix(name, "cpuxalan") || strings.HasPrefix(name, "x264") ||
-			strings.HasPrefix(name, "leela") || strings.HasPrefix(name, "exchange2") {
+			strings.HasPrefix(name, "cpuxalan") {
 			closPos = 0
-		} else {
+		} else if strings.HasPrefix(name, "xz") {
 			closPos = 2
 		}
+		// non-critial e all ways
 		for pid := range group.processes {
 			clos[closPos].Processes = append(clos[closPos].Processes, pid)
 		}
