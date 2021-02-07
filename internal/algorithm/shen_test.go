@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/big"
 	"math/rand"
+	"os"
 	"testing"
 )
 
@@ -66,6 +67,13 @@ func TestShenModelWithLsData(t *testing.T) {
 		assert.Less(t, sum, float64(1))
 		assert.NotZero(t, sum)
 	}
+}
+
+func TestShenModelWithRth(t *testing.T) {
+	file, _ := os.Open("/home/wjx/Documents/基于Kubernetes的在离线混合部署/实验数据/pin采样rth-200亿/deepsjeng.rth.csv")
+	rth := LoadRthFromCsv(file)
+	rdh := NewShenModel(rth).ReuseDistanceHistogram()
+	assert.NotZero(t, len(rdh))
 }
 
 func BenchmarkCombination(b *testing.B) {

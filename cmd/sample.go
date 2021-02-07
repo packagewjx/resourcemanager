@@ -115,7 +115,7 @@ func executeSampleCommand(rq interface{}) error {
 func rthOutput(consumer memrecord.RTHCalculatorConsumer, m *memrecord.Result) error {
 	threadTrace := consumer.GetCalculatorMap()
 	for tid, calculator := range threadTrace {
-		outFile, err := os.Create(fmt.Sprintf("sample_%d.rth.csv", tid))
+		outFile, err := os.Create(fmt.Sprintf("sample_%d.mcf.rth.csv", tid))
 		if err != nil {
 			return errors.Wrap(err, "无法创建输出文件")
 		}

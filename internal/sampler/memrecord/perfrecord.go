@@ -71,7 +71,7 @@ func (p *perfRecorder) newContext(ctx context.Context, consumer CacheLineAddress
 		return nil, errors.Wrap(err, "无法创建临时文件夹")
 	}
 	outFile := filepath.Join(tmpDir, "perf.data")
-	args := []string{"record", "-e", "\"{mem_inst_retired.all_loads:P,mem_inst_retired.all_stores:P,pebs_addr:pebs_addr}\"",
+	args := []string{"record", "-e", "\"{mem_inst_retired.all_loads:ukP,mem_inst_retired.all_stores:ukP,pebs_addr:pebs_addr}\"",
 		"-c", strconv.FormatInt(int64(p.overflowCount), 10), p.switchOutput, "-o", outFile}
 	cmd := exec.Command(filepath.Join(p.perfExecPath, "perf"), args...)
 	watcher, err := fsnotify.NewWatcher()
@@ -96,7 +96,7 @@ func (p *perfRecorder) newContext(ctx context.Context, consumer CacheLineAddress
 }
 
 func (p *perfRecorder) perfCmdRunner(perfCtx *perfRecordContext) {
-	fmt.Println(strings.Join(perfCtx.perfCmd.Args, " "))
+	p.logger.Println("执行Perf命令", strings.Join(perfCtx.perfCmd.Args, " "))
 	_ = perfCtx.perfCmd.Start()
 	errCh := make(chan error)
 	go func() {
@@ -130,7 +130,7 @@ func (p *perfRecorder) resultReader(perfCtx *perfRecordContext) {
 	}
 	defer func() {
 		perfCtx.cancelFunc()
-		p.logger.Println("地址追踪读取结束")
+		p.logger.Printf("地址追踪读取结束。一共采集 %d 条地址记录", perfCtx.readCnt)
 		_ = os.RemoveAll(perfCtx.tmpDir)
 		perfCtx.resCh <- res
 	}()

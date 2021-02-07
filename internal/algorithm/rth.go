@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"strconv"
+	"strings"
 )
 
 type RTHCalculator interface {
@@ -130,4 +132,26 @@ func WriteAsCsv(rth []int, writer io.Writer) {
 		_, _ = bufWriter.WriteString(fmt.Sprintf("%d,%d\n", t, c))
 	}
 	_ = bufWriter.Flush()
+}
+
+func LoadRthFromCsv(f io.Reader) []int {
+	reader := bufio.NewReader(f)
+	var line string
+	var err error
+	m := map[int]int{}
+	maxRt := int64(0)
+	for line, err = reader.ReadString('\n'); err == nil; line, err = reader.ReadString('\n') {
+		split := strings.Split(line[:len(line)-1], ",")
+		rt, _ := strconv.ParseInt(split[0], 0, 32)
+		cnt, _ := strconv.ParseInt(split[1], 0, 32)
+		m[int(rt)] = int(cnt)
+		if rt > maxRt {
+			maxRt = rt
+		}
+	}
+	rth := make([]int, maxRt+1)
+	for r, c := range m {
+		rth[r] = c
+	}
+	return rth
 }

@@ -130,7 +130,7 @@ func TestBA(t *testing.T) {
 	for _, addrList := range trace {
 		rth.Update(addrList)
 	}
-	out, _ := os.Create("rth.csv")
+	out, _ := os.Create("mcf.rth.csv")
 	WriteAsCsv(rth.GetRTH(100000), out)
 	_ = out.Close()
 }
