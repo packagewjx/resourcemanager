@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"github.com/packagewjx/resourcemanager/internal/algorithm"
 	"github.com/packagewjx/resourcemanager/internal/classifier"
 	"github.com/packagewjx/resourcemanager/internal/core"
 	"github.com/packagewjx/resourcemanager/internal/pqos"
@@ -15,6 +14,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -147,29 +147,10 @@ func (r *impl) handleProcessStatus(ctx context.Context, status *watcher.ProcessG
 func (r *impl) doReAlloc() {
 	// 首先获取快照，防止processGroups修改产生的一些意外后果
 	r.logger.Println("正在计算分配方案")
-	managedProcess := make([]*processCharacteristic, 0, 10)
-	r.processGroups.traverse(func(name string, group *processGroupContext) bool {
-		if group.state == processGroupStateClassifying || group.state == processGroupStateErrored {
-			return true
-		}
-		pGroup := group.group.Clone().(*core.ProcessGroup)
-		for _, pid := range pGroup.Pid {
-			r, ok := group.processes[pid]
-			if !ok || r.characteristic == classifier.MemoryCharacteristicNonCritical ||
-				r.characteristic == classifier.MemoryCharacteristicBully || r.characteristic == classifier.MemoryCharacteristicSquanderer {
-				continue
-			}
-
-			managedProcess = append(managedProcess, r.Clone().(*processCharacteristic))
-		}
-		return true
-	})
-
 	r.logger.Println("分配方案计算完成，正在执行分配")
-	programMetricList := r.processGroups.getProgramMetricList()
-	r.currentSchemes = algorithm.DCAPS(programMetricList, r.currentSchemes, numWays, numSets, 8)
+	schemes := r.directAlloc()
 
-	err := pqos.SetCLOSScheme(r.currentSchemes)
+	err := pqos.SetCLOSScheme(schemes)
 	if err != nil {
 		r.logger.Println("无法设置CLOS分配", err)
 	}
@@ -331,4 +312,37 @@ func (r *impl) Run() error {
 		}
 	}
 
+}
+
+func (r *impl) directAlloc() []*pqos.CLOSScheme {
+	clos := make([]*pqos.CLOSScheme, 3)
+	clos[0] = &pqos.CLOSScheme{
+		CLOSNum: 1,
+		WayBit:  0x3,
+	}
+	clos[1] = &pqos.CLOSScheme{
+		CLOSNum: 2,
+		WayBit:  0x1C,
+	}
+	clos[2] = &pqos.CLOSScheme{
+		CLOSNum: 3,
+		WayBit:  0x7F0,
+	}
+	r.processGroups.traverse(func(name string, group *processGroupContext) bool {
+		closPos := 0
+		if strings.HasPrefix(name, "perlbench") || strings.HasPrefix(name, "cpugcc") {
+			closPos = 1
+		} else if strings.HasPrefix(name, "mcf") || strings.HasPrefix(name, "omnetpp") ||
+			strings.HasPrefix(name, "cpuxalan") || strings.HasPrefix(name, "x264") ||
+			strings.HasPrefix(name, "leela") || strings.HasPrefix(name, "exchange2") {
+			closPos = 0
+		} else {
+			closPos = 2
+		}
+		for pid := range group.processes {
+			clos[closPos].Processes = append(clos[closPos].Processes, pid)
+		}
+		return true
+	})
+	return clos
 }
