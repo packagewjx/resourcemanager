@@ -1,1 +1,1 @@
-pkill --signal SIGKILL "perlbench_r|cpugcc_r|mcf_r_base|omnetpp_r|x264_r|deepsjeng_r|leela_r|exchange2_r|xz_r_base|cpuxalan_r"
+pkill --signal SIGKILL "perlbench_r|cpugcc_r|mcf_r_|omnetpp_r|x264_r|deepsjeng_r|leela_r|exchange2_r|xz_r_|cpuxalan_r"
