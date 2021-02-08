@@ -15,5 +15,5 @@ fi
 cd $specdir
 source ./shrc
 for i in $runlist; do
-  runcpu --action=onlyrun --config=shiyan --size=test --tune=ref $i > $currentDir/$i.log &
+  runcpu --action=onlyrun --config=shiyan --size=ref --tune=base $i > $currentDir/$i.log &
 done
