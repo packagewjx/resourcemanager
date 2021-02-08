@@ -14,8 +14,8 @@ fi
 
 cd $specdir
 source ./shrc
-for j in 1 2 3; do
+for j in 1 2; do
   for i in $runlist; do
-    runcpu --action=onlyrun --config=shiyan --size=ref --tune=base $i >$currentDir/$i-$j.log &
+    runcpu --action=onlyrun --config=shiyan --size=ref --tune=peak $i >$currentDir/$i-$j.log &
   done
 done

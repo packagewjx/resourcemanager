@@ -321,15 +321,15 @@ func (r *impl) directAlloc() []*pqos.CLOSScheme {
 	clos := make([]*pqos.CLOSScheme, 3)
 	clos[0] = &pqos.CLOSScheme{
 		CLOSNum: 1,
-		WayBit:  0x3,
+		WayBit:  0xF,
 	}
 	clos[1] = &pqos.CLOSScheme{
 		CLOSNum: 2,
-		WayBit:  0x7C,
+		WayBit:  0x7F0,
 	}
 	clos[2] = &pqos.CLOSScheme{
 		CLOSNum: 3,
-		WayBit:  0x7FC,
+		WayBit:  0x7FF,
 	}
 	r.processGroups.traverse(func(name string, group *processGroupContext) bool {
 		r.logger.Printf("ocess Group %s: Process [%v]", name, group.processes)
