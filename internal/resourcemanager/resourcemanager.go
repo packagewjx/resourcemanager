@@ -150,6 +150,9 @@ func (r *impl) doReAlloc() {
 	r.logger.Println("分配方案计算完成，正在执行分配")
 	schemes := r.directAlloc()
 
+	for _, scheme := range schemes {
+		r.logger.Printf("CLOS [%d] WayBit [%x] Process [%v]", scheme.CLOSNum, scheme.WayBit, scheme.Processes)
+	}
 	err := pqos.SetCLOSScheme(schemes)
 	if err != nil {
 		r.logger.Println("无法设置CLOS分配", err)
@@ -326,17 +329,16 @@ func (r *impl) directAlloc() []*pqos.CLOSScheme {
 	}
 	clos[2] = &pqos.CLOSScheme{
 		CLOSNum: 3,
-		WayBit:  0x7F0,
+		WayBit:  0x7FC,
 	}
 	r.processGroups.traverse(func(name string, group *processGroupContext) bool {
 		closPos := 0
 		if strings.HasPrefix(name, "perlbench") || strings.HasPrefix(name, "cpugcc") {
-			closPos = 1
-		} else if strings.HasPrefix(name, "mcf") || strings.HasPrefix(name, "omnetpp") ||
-			strings.HasPrefix(name, "cpuxalan") {
-			closPos = 0
-		} else if strings.HasPrefix(name, "xz") {
-			closPos = 2
+			closPos = 1 // medium
+		} else if strings.HasPrefix(name, "mcf") || strings.HasPrefix(name, "omnetpp") {
+			closPos = 0 // bully
+		} else if strings.HasPrefix(name, "xz") || strings.HasPrefix(name, "cpuxalan") {
+			closPos = 2 // sensitive
 		}
 		// non-critial e all ways
 		for pid := range group.processes {
