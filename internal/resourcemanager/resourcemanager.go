@@ -325,13 +325,14 @@ func (r *impl) directAlloc() []*pqos.CLOSScheme {
 	}
 	clos[1] = &pqos.CLOSScheme{
 		CLOSNum: 2,
-		WayBit:  0x1C,
+		WayBit:  0x7C,
 	}
 	clos[2] = &pqos.CLOSScheme{
 		CLOSNum: 3,
 		WayBit:  0x7FC,
 	}
 	r.processGroups.traverse(func(name string, group *processGroupContext) bool {
+		r.logger.Printf("ocess Group %s: Process [%v]", name, group.processes)
 		closPos := 0
 		if strings.HasPrefix(name, "perlbench") || strings.HasPrefix(name, "cpugcc") {
 			closPos = 1 // medium
