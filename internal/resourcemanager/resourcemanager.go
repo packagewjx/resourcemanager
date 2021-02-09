@@ -337,6 +337,8 @@ func (r *impl) directAlloc() []*pqos.CLOSScheme {
 		if strings.HasPrefix(name, "mcf") || strings.HasPrefix(name, "omnetpp") ||
 			strings.HasPrefix(name, "xz") || strings.HasPrefix(name, "cpugcc") {
 			closPos = 0 // bully, squanderer
+		} else {
+			closPos = 1
 		}
 		// non-critial e all ways
 		for pid := range group.processes {
