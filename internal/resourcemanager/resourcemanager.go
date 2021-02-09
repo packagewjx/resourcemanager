@@ -325,7 +325,7 @@ func (r *impl) directAlloc() []*pqos.CLOSScheme {
 	}
 	clos[1] = &pqos.CLOSScheme{
 		CLOSNum: 2,
-		WayBit:  0x7F0,
+		WayBit:  0x7FF,
 	}
 	clos[2] = &pqos.CLOSScheme{
 		CLOSNum: 3,
