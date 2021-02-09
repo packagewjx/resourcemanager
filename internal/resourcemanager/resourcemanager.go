@@ -334,12 +334,9 @@ func (r *impl) directAlloc() []*pqos.CLOSScheme {
 	r.processGroups.traverse(func(name string, group *processGroupContext) bool {
 		r.logger.Printf("ocess Group %s: Process [%v]", name, group.processes)
 		closPos := 0
-		if strings.HasPrefix(name, "perlbench") || strings.HasPrefix(name, "cpugcc") {
-			closPos = 1 // medium
-		} else if strings.HasPrefix(name, "mcf") || strings.HasPrefix(name, "omnetpp") {
-			closPos = 0 // bully
-		} else if strings.HasPrefix(name, "xz") || strings.HasPrefix(name, "cpuxalan") {
-			closPos = 2 // sensitive
+		if strings.HasPrefix(name, "mcf") || strings.HasPrefix(name, "omnetpp") ||
+			strings.HasPrefix(name, "xz") || strings.HasPrefix(name, "cpugcc") {
+			closPos = 0 // bully, squanderer
 		}
 		// non-critial e all ways
 		for pid := range group.processes {
