@@ -318,17 +318,13 @@ func (r *impl) Run() error {
 }
 
 func (r *impl) directAlloc() []*pqos.CLOSScheme {
-	clos := make([]*pqos.CLOSScheme, 3)
+	clos := make([]*pqos.CLOSScheme, 2)
 	clos[0] = &pqos.CLOSScheme{
 		CLOSNum: 1,
 		WayBit:  0xF,
 	}
 	clos[1] = &pqos.CLOSScheme{
 		CLOSNum: 2,
-		WayBit:  0x7FF,
-	}
-	clos[2] = &pqos.CLOSScheme{
-		CLOSNum: 3,
 		WayBit:  0x7FF,
 	}
 	r.processGroups.traverse(func(name string, group *processGroupContext) bool {
