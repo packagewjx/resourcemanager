@@ -334,8 +334,7 @@ func (r *impl) directAlloc() []*pqos.CLOSScheme {
 	r.processGroups.traverse(func(name string, group *processGroupContext) bool {
 		r.logger.Printf("ocess Group %s: Process [%v]", name, group.processes)
 		closPos := 0
-		if strings.HasPrefix(name, "mcf") || strings.HasPrefix(name, "omnetpp") ||
-			strings.HasPrefix(name, "xz") || strings.HasPrefix(name, "cpugcc") {
+		if strings.HasPrefix(name, "mcf") {
 			closPos = 0 // bully, squanderer
 		} else {
 			closPos = 1
